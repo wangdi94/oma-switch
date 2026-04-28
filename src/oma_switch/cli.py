@@ -22,6 +22,10 @@ PROFILES_DIR = CONFIG_DIR / "profiles"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
 
+# DCP (Dynamic Context Pruning) 插件配置
+OPENCODE_DIR = Path.home() / ".config" / "opencode"
+DCP_CONFIG_FILE = OPENCODE_DIR / "dcp.jsonc"
+
 
 class Colors:
     RED = "\033[0;31m"
@@ -62,6 +66,37 @@ def print_dim(message: str) -> None:
 def ensure_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_dcp_config() -> Dict[str, Any]:
+    """获取 DCP 插件配置"""
+    if not DCP_CONFIG_FILE.exists():
+        return {"enabled": False}
+    try:
+        with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+            import re
+            content = re.sub(r'//.*?\n', '\n', content)
+            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            return json.loads(content)
+    except (json.JSONDecodeError, IOError):
+        return {"enabled": False}
+
+
+def save_dcp_config(config: Dict[str, Any]) -> None:
+    """保存 DCP 插件配置"""
+    OPENCODE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def update_dcp_state(enable: bool) -> None:
+    """更新 DCP 插件状态"""
+    dcp_config = get_dcp_config()
+    dcp_config["enabled"] = enable
+    save_dcp_config(dcp_config)
+    state = "启用" if enable else "禁用"
+    print_info(f"DCP 插件已{state}")
 
 
 def load_config() -> Dict[str, Any]:
@@ -791,6 +826,16 @@ def cmd_switch(args: List[str]) -> None:
 
     print_success(f"已切换到配置文件 '{name}'")
 
+    profile = load_profile_json(name)
+    if profile and check_template_profile(profile):
+        _, current_models = get_template_summary(profile)
+        strong_model = current_models.get("强模型", "")
+        dcp_trigger_models = config.get("dcp_trigger_models", [])
+
+        if dcp_trigger_models:
+            should_enable_dcp = strong_model in dcp_trigger_models
+            update_dcp_state(should_enable_dcp)
+
 
 def cmd_diff(args: List[str]) -> None:
     """
@@ -933,6 +978,29 @@ def cmd_backup(args: List[str]) -> None:
     print_success(f"已创建备份: {backup_name}")
 
 
+def cmd_dcp_config(args: List[str]) -> None:
+    """配置 DCP 插件的触发模型"""
+    config = load_config()
+    dcp_trigger_models = config.get("dcp_trigger_models", [])
+
+    if not args:
+        if not dcp_trigger_models:
+            print_info("DCP 触发模型未配置")
+            print_info("使用 'oma-switch dcp-config <model1> <model2> ...' 设置触发模型")
+        else:
+            print_info("DCP 触发模型:")
+            for model in dcp_trigger_models:
+                print(f"  - {Colors.CYAN}{model}{Colors.NC}")
+        return
+
+    config["dcp_trigger_models"] = args
+    save_config(config)
+
+    print_success(f"DCP 触发模型已更新:")
+    for model in args:
+        print(f"  - {Colors.CYAN}{model}{Colors.NC}")
+
+
 def cmd_help() -> None:
     """显示帮助信息"""
     help_text = f"""
@@ -957,6 +1025,7 @@ OMA 配置文件切换工具 (v2.0)
     list                     列出所有配置文件
     switch <name>            切换到指定配置文件
     backup                   备份当前配置
+    dcp-config [models...]   配置 DCP 触发模型
     help                     显示此帮助信息
 
   支持双模式（快速/详细）:
@@ -982,6 +1051,11 @@ OMA 配置文件切换工具 (v2.0)
   多模态模型     → multimodal-looker 等需要视觉能力的智能体
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
+
+DCP 插件配置:
+  dcp-config [model1] [model2] ...  配置 DCP 触发模型
+    不带参数: 查看当前配置的触发模型
+    带参数: 设置触发模型列表（切换时强模型匹配则启用 DCP）
 """
     print(help_text)
 
@@ -1009,6 +1083,7 @@ def main() -> None:
         "switch": cmd_switch,
         "diff": cmd_diff,
         "backup": cmd_backup,
+        "dcp-config": cmd_dcp_config,
         "help": cmd_help,
     }
 
