@@ -1,0 +1,1027 @@
+#!/usr/bin/env python3
+"""
+OMA (Oh-My-Agent) 配置文件切换工具
+用于管理 opencode 的 oh-my-openagent.json 配置文件
+
+快速模式（默认）：按三类模型（强/弱/多模态）进行查看、创建、比较
+详细模式（--detail）：完整的 JSON 操作（编辑/全文查看/系统 diff）
+"""
+
+import json
+import os
+import sys
+import copy
+import shutil
+import subprocess
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
+
+CONFIG_DIR = Path.home() / ".config" / "oma-switch"
+PROFILES_DIR = CONFIG_DIR / "profiles"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
+
+
+class Colors:
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    PURPLE = "\033[0;35m"
+    CYAN = "\033[0;36m"
+    GRAY = "\033[0;90m"
+    BOLD = "\033[1m"
+    NC = "\033[0m"
+
+
+def print_color(color: str, message: str) -> None:
+    print(f"{color}{message}{Colors.NC}")
+
+
+def print_error(message: str) -> None:
+    print_color(Colors.RED, f"错误: {message}")
+
+
+def print_success(message: str) -> None:
+    print_color(Colors.GREEN, f"✓ {message}")
+
+
+def print_warning(message: str) -> None:
+    print_color(Colors.YELLOW, f"⚠ {message}")
+
+
+def print_info(message: str) -> None:
+    print_color(Colors.BLUE, f"ℹ {message}")
+
+
+def print_dim(message: str) -> None:
+    print_color(Colors.GRAY, message)
+
+
+def ensure_dirs() -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_config() -> Dict[str, Any]:
+    if not CONFIG_FILE.exists():
+        return {"current": None, "profiles": {}}
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        print_error("配置文件损坏，将重新创建")
+        return {"current": None, "profiles": {}}
+
+
+def save_config(config: Dict[str, Any]) -> None:
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def get_profile_path(name: str) -> Path:
+    return PROFILES_DIR / f"{name}.json"
+
+
+def is_valid_json(filepath: Path) -> bool:
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            json.load(f)
+        return True
+    except (json.JSONDecodeError, FileNotFoundError):
+        return False
+
+
+def load_profile_json(name: str) -> Optional[Dict[str, Any]]:
+    """Load a profile by name, return None if missing/invalid."""
+    path = get_profile_path(name)
+    if not path.exists():
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return None
+
+
+def open_editor(filepath: Path) -> bool:
+    editor = os.environ.get('EDITOR', os.environ.get('VISUAL', 'vim'))
+    try:
+        result = subprocess.run([editor, str(filepath)], check=True)
+        return result.returncode == 0
+    except subprocess.CalledProcessError:
+        return False
+    except FileNotFoundError:
+        print_error(f"找不到编辑器: {editor}")
+        return False
+
+
+def check_current_unrecorded() -> None:
+    if not OMA_CONFIG.exists():
+        return
+
+    config = load_config()
+    current_name = config.get("current")
+
+    if current_name and current_name in config["profiles"]:
+        profile_path = get_profile_path(current_name)
+        if profile_path.exists():
+            return
+
+    print_warning("当前 OMA 配置文件未被记录")
+    response = input("是否要记录当前配置文件? (y/N): ").strip().lower()
+    if response == 'y':
+        name = input("请输入配置文件名称: ").strip()
+        if not name:
+            print_error("名称不能为空")
+            return
+        if name in config["profiles"]:
+            print_error(f"配置文件 '{name}' 已存在")
+            return
+
+        shutil.copy2(OMA_CONFIG, get_profile_path(name))
+        config["current"] = name
+        config["profiles"][name] = {
+            "created": datetime.now().isoformat(),
+            "description": ""
+        }
+        save_config(config)
+        print_success(f"已记录当前配置文件为 '{name}'")
+
+
+# ── 三类模型分析相关函数 ──────────────────────────────────────────
+
+# ── 模板定义 ─────────────────────────────────────────────────────
+# 三类模型分别包含哪些 agents 和 categories
+TEMPLATE_GROUPS = {
+    "强模型": {
+        ("agents", "sisyphus"),
+        ("agents", "hephaestus"),
+        ("agents", "oracle"),
+        ("agents", "metis"),
+        ("categories", "ultrabrain"),
+    },
+    "弱模型": {
+        ("agents", "prometheus"),
+        ("agents", "atlas"),
+        ("agents", "momus"),
+        ("agents", "explore"),
+        ("agents", "librarian"),
+        ("categories", "deep"),
+        ("categories", "artistry"),
+        ("categories", "quick"),
+        ("categories", "unspecified-low"),
+        ("categories", "unspecified-high"),
+        ("categories", "writing"),
+        ("categories", "visual-engineering"),
+    },
+    "多模态模型": {
+        ("agents", "multimodal-looker"),
+    },
+}
+
+
+def check_template_profile(profile: dict) -> bool:
+    """
+    检查 profile 是否满足模板要求：
+    - 模板中定义的所有条目（agents + categories）都存在
+    - 每个角色组（强/弱/多模态）内的所有条目使用同一个模型
+    """
+    if not isinstance(profile, dict):
+        return False
+
+    for type_label, entries in TEMPLATE_GROUPS.items():
+        models = set()
+        for section, key in entries:
+            entry = profile.get(section, {}).get(key)
+            if not isinstance(entry, dict) or "model" not in entry:
+                return False
+            models.add(entry["model"])
+        if len(models) != 1:
+            return False
+
+    return True
+
+
+def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
+    """
+    按模板分组获取摘要。
+    仅在 profile 通过 check_template_profile 后调用。
+    返回: (summary, current_models)
+    - summary: {类型: {模型名: [(section, key), ...]}}
+    - current_models: {类型: 模型名}
+    """
+    summary = {}
+    current_models = {}
+
+    for type_label, entries in TEMPLATE_GROUPS.items():
+        section, key = next(iter(entries))
+        common_model = profile.get(section, {}).get(key, {}).get("model", "")
+
+        summary[type_label] = {common_model: list(entries)}
+        current_models[type_label] = common_model
+
+    return summary, current_models
+
+
+def print_type_summary(summary: Dict, title: str = None) -> None:
+    """打印格式化的三类模型摘要"""
+    if title:
+        print_info(title)
+        print()
+
+    for t in TEMPLATE_GROUPS:
+        if t not in summary:
+            continue
+        entries = summary[t]
+        for model, keys in entries.items():
+            agent_keys = [k for s, k in keys if s == "agents"]
+            cat_keys = [k for s, k in keys if s == "categories"]
+            parts = []
+            if agent_keys:
+                parts.append(f"agents: {', '.join(sorted(agent_keys))}")
+            if cat_keys:
+                parts.append(f"categories: {', '.join(sorted(cat_keys))}")
+            print(f"  {Colors.BOLD}{t}{Colors.NC}:")
+            print(f"    {Colors.CYAN}{model}{Colors.NC}")
+            for p in parts:
+                print(f"      {p}")
+        print()
+
+
+def collect_all_models() -> List[str]:
+    """从所有 profile 和当前 OMA 配置中提取所有不重复的模型名"""
+    models = set()
+
+    if PROFILES_DIR.exists():
+        for f in sorted(PROFILES_DIR.glob("*.json")):
+            try:
+                with open(f, 'r', encoding='utf-8') as fh:
+                    profile = json.load(fh)
+                for section in ("agents", "categories"):
+                    for value in profile.get(section, {}).values():
+                        if isinstance(value, dict) and "model" in value:
+                            models.add(value["model"])
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    if OMA_CONFIG.exists():
+        try:
+            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+                profile = json.load(f)
+            for section in ("agents", "categories"):
+                for value in profile.get(section, {}).values():
+                    if isinstance(value, dict) and "model" in value:
+                        models.add(value["model"])
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    return sorted(models)
+
+
+def prompt_select_model(
+    type_label: str,
+    all_models: List[str],
+    current: str = None
+) -> str:
+    """交互式提示用户选择一个模型"""
+    print(f"  {Colors.BOLD}{type_label}{Colors.NC}")
+    if current:
+        print(f"    当前: {Colors.CYAN}{current}{Colors.NC}")
+    print(f"    可用模型:")
+    for i, m in enumerate(all_models, 1):
+        marker = " (当前)" if m == current else ""
+        print(f"      [{i}] {m}{marker}")
+
+    prompt_text = f"  请输入{type_label}（编号/自定义模型名"
+    if current:
+        prompt_text += "/留空=当前值"
+    prompt_text += "）: "
+    choice = input(prompt_text).strip()
+
+    if not choice and current:
+        return current
+
+    if choice.isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(all_models):
+            return all_models[idx]
+        print_warning("无效编号，使用当前值")
+        return current or choice
+
+    return choice or current
+
+
+def generate_profile_from_types(
+    template: dict,
+    model_map: Dict[str, str]
+) -> dict:
+    """
+    根据模板生成新 profile。
+    model_map: {类型: 新模型名}
+    按 TEMPLATE_GROUPS 替换各角色的模型。
+    """
+    new_profile = copy.deepcopy(template)
+    for type_label, entries in TEMPLATE_GROUPS.items():
+        new_model = model_map.get(type_label)
+        if new_model:
+            for section, key in entries:
+                if section in new_profile and key in new_profile[section]:
+                    new_profile[section][key]["model"] = new_model
+    return new_profile
+
+
+def parse_flag(args: List[str], flag: str = "--detail") -> Tuple[bool, List[str]]:
+    """从参数列表中提取标志，返回 (has_flag, remaining_args)"""
+    has = False
+    remaining = []
+    for arg in args:
+        if arg == flag:
+            has = True
+        else:
+            remaining.append(arg)
+    return has, remaining
+
+
+def get_profile_or_current(name: str = None) -> Tuple[str, Dict, str]:
+    """
+    获取 profile 数据。
+    返回: (name, profile_dict, error_msg)
+    如果出错，error_msg 非空，name 和 profile_dict 无意义。
+    """
+    config = load_config()
+
+    if not name:
+        name = config.get("current")
+        if not name:
+            return None, None, "当前没有激活的配置文件"
+    elif name not in config["profiles"]:
+        return None, None, f"配置文件 '{name}' 不存在"
+
+    profile = load_profile_json(name)
+    if profile is None:
+        return None, None, f"配置文件 '{name}' 文件丢失或格式错误"
+
+    return name, profile, None
+
+
+# ── 命令实现 ──────────────────────────────────────────────────────
+
+
+def cmd_add(args: List[str]) -> None:
+    """添加配置文件"""
+    if len(args) < 2:
+        print_error("用法: oma-switch add <filepath> <name>")
+        print_info("filepath: 要添加的配置文件路径")
+        print_info("name: 配置文件名称")
+        sys.exit(1)
+
+    filepath = Path(args[0]).expanduser().resolve()
+    name = args[1]
+
+    if not filepath.exists():
+        print_error(f"文件不存在: {filepath}")
+        sys.exit(1)
+
+    if not is_valid_json(filepath):
+        print_error(f"文件不是有效的 JSON 格式: {filepath}")
+        sys.exit(1)
+
+    config = load_config()
+    if name in config["profiles"]:
+        print_error(f"配置文件 '{name}' 已存在")
+        sys.exit(1)
+
+    shutil.copy2(filepath, get_profile_path(name))
+    config["profiles"][name] = {
+        "created": datetime.now().isoformat(),
+        "description": ""
+    }
+    save_config(config)
+
+    try:
+        filepath.unlink()
+        print_success(f"已添加配置文件 '{name}' (原文件已删除)")
+    except OSError as e:
+        print_success(f"已添加配置文件 '{name}'")
+        print_warning(f"无法删除原文件: {e}")
+
+
+def cmd_rm(args: List[str]) -> None:
+    """删除配置文件"""
+    if not args:
+        print_error("用法: oma-switch rm <name>")
+        sys.exit(1)
+
+    name = args[0]
+    config = load_config()
+
+    if name not in config["profiles"]:
+        print_error(f"配置文件 '{name}' 不存在")
+        sys.exit(1)
+
+    response = input(f"确定要删除配置文件 '{name}' 吗? (y/N): ").strip().lower()
+    if response != 'y':
+        print_info("已取消")
+        return
+
+    profile_path = get_profile_path(name)
+    if profile_path.exists():
+        profile_path.unlink()
+
+    if config.get("current") == name:
+        config["current"] = None
+
+    del config["profiles"][name]
+    save_config(config)
+    print_success(f"已删除配置文件 '{name}'")
+
+
+def cmd_edit(args: List[str]) -> None:
+    """
+    编辑配置文件。
+
+    快速模式（默认）：
+      - 交互式修改三类模型，自动生成新配置
+    详细模式（--detail）：
+      - 打开编辑器编辑完整 JSON（原行为）
+    """
+    has_detail, remaining_args = parse_flag(args, "--detail")
+
+    if not remaining_args:
+        print_error("用法: oma-switch edit [--detail] <name>")
+        sys.exit(1)
+
+    name = remaining_args[0]
+    config = load_config()
+
+    if name not in config["profiles"]:
+        print_error(f"配置文件 '{name}' 不存在")
+        sys.exit(1)
+
+    profile_path = get_profile_path(name)
+    if not profile_path.exists():
+        print_error(f"配置文件 '{name}' 不存在")
+        sys.exit(1)
+
+    profile = load_profile_json(name)
+    if profile is None:
+        print_error(f"配置文件 '{name}' 格式错误")
+        sys.exit(1)
+
+    if has_detail:
+        print_info(f"正在编辑配置文件 '{name}' (详细模式)...")
+        if open_editor(profile_path):
+            if is_valid_json(profile_path):
+                print_success(f"配置文件 '{name}' 已更新")
+                config["profiles"][name]["modified"] = datetime.now().isoformat()
+                save_config(config)
+                if config.get("current") == name:
+                    shutil.copy2(profile_path, OMA_CONFIG)
+                    print_info("已同步到 OMA 配置文件")
+            else:
+                print_error("配置文件格式错误，已恢复")
+        else:
+            print_error("编辑失败")
+        return
+
+    if not check_template_profile(profile):
+        print_warning(f"配置文件 '{name}' 不符合模板结构，按详细模式编辑")
+        print_info(f"正在编辑配置文件 '{name}' (详细模式)...")
+        if open_editor(profile_path):
+            if is_valid_json(profile_path):
+                print_success(f"配置文件 '{name}' 已更新")
+                config["profiles"][name]["modified"] = datetime.now().isoformat()
+                save_config(config)
+                if config.get("current") == name:
+                    shutil.copy2(profile_path, OMA_CONFIG)
+                    print_info("已同步到 OMA 配置文件")
+            else:
+                print_error("配置文件格式错误，已恢复")
+        else:
+            print_error("编辑失败")
+        return
+
+    print_info(f"正在编辑配置文件 '{name}' (快速模式)")
+    print()
+
+    summary, current_models = get_template_summary(profile)
+    all_models = collect_all_models()
+
+    print_type_summary(summary, "当前模板结构:")
+
+    strong = prompt_select_model("强模型", all_models, current_models["强模型"])
+    weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
+    multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
+
+    model_map = {"强模型": strong, "弱模型": weak, "多模态模型": multi}
+    new_profile = generate_profile_from_types(profile, model_map)
+
+    with open(profile_path, 'w', encoding='utf-8') as f:
+        json.dump(new_profile, f, indent=2, ensure_ascii=False)
+
+    config["profiles"][name]["modified"] = datetime.now().isoformat()
+    save_config(config)
+
+    if config.get("current") == name:
+        shutil.copy2(profile_path, OMA_CONFIG)
+        print_info("已同步到 OMA 配置文件")
+
+    print()
+    print_success(f"配置文件 '{name}' 已更新")
+
+    new_summary, _ = get_template_summary(new_profile)
+    print_type_summary(new_summary, "更新后配置:")
+
+
+def cmd_create(args: List[str]) -> None:
+    """
+    创建新配置文件。
+
+    快速模式（默认）：
+      - 以当前配置为模板，交互式指定三类模型
+      - 自动生成新配置文件
+    详细模式（--detail）：
+      - 复制当前配置并打开编辑器编辑（原行为）
+    """
+    has_detail, remaining_args = parse_flag(args, "--detail")
+
+    if not remaining_args:
+        print_error("用法: oma-switch create [--detail] <name>")
+        sys.exit(1)
+
+    name = remaining_args[0]
+    config = load_config()
+
+    if name in config["profiles"]:
+        print_error(f"配置文件 '{name}' 已存在")
+        sys.exit(1)
+
+    if not OMA_CONFIG.exists():
+        print_error("当前 OMA 配置文件不存在")
+        sys.exit(1)
+
+    with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+        current_profile = json.load(f)
+
+    if has_detail:
+        profile_path = get_profile_path(name)
+        shutil.copy2(OMA_CONFIG, profile_path)
+
+        print_info(f"正在创建新配置文件 '{name}' (详细模式)...")
+        if open_editor(profile_path):
+            if is_valid_json(profile_path):
+                config["profiles"][name] = {
+                    "created": datetime.now().isoformat(),
+                    "description": ""
+                }
+                save_config(config)
+                print_success(f"已创建配置文件 '{name}'")
+            else:
+                profile_path.unlink()
+                print_error("配置文件格式错误，已取消创建")
+        else:
+            profile_path.unlink()
+            print_error("创建失败")
+        return
+
+    if not check_template_profile(current_profile):
+        print_warning("当前配置文件不符合模板结构，无法使用快速模式")
+        resp = input("是否进入详细模式（直接编辑）? (y/N): ").strip().lower()
+        if resp != 'y':
+            print_info("已取消")
+            return
+
+        profile_path = get_profile_path(name)
+        shutil.copy2(OMA_CONFIG, profile_path)
+
+        print_info(f"正在创建新配置文件 '{name}' (详细模式)...")
+        if open_editor(profile_path):
+            if is_valid_json(profile_path):
+                config["profiles"][name] = {
+                    "created": datetime.now().isoformat(),
+                    "description": ""
+                }
+                save_config(config)
+                print_success(f"已创建配置文件 '{name}'")
+            else:
+                profile_path.unlink()
+                print_error("配置文件格式错误，已取消创建")
+        else:
+            profile_path.unlink()
+            print_error("创建失败")
+        return
+
+    print_info(f"正在创建新配置文件 '{name}' (快速模式)")
+    print("基于当前配置文件模板，指定三类模型:")
+    print()
+
+    summary, current_models = get_template_summary(current_profile)
+    all_models = collect_all_models()
+
+    print_type_summary(summary, "当前模板结构:")
+
+    strong = prompt_select_model("强模型", all_models, current_models["强模型"])
+    weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
+    multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
+
+    model_map = {"强模型": strong, "弱模型": weak, "多模态模型": multi}
+    new_profile = generate_profile_from_types(current_profile, model_map)
+
+    profile_path = get_profile_path(name)
+    with open(profile_path, 'w', encoding='utf-8') as f:
+        json.dump(new_profile, f, indent=2, ensure_ascii=False)
+
+    config["profiles"][name] = {
+        "created": datetime.now().isoformat(),
+        "description": ""
+    }
+    save_config(config)
+
+    print()
+    print_success(f"已创建配置文件 '{name}'")
+
+    new_summary, _ = get_template_summary(new_profile)
+    print_type_summary(new_summary, "新配置摘要:")
+
+
+def cmd_view(args: List[str]) -> None:
+    """
+    查看配置文件。
+
+    快速模式（默认）：按三类模型分组显示
+    详细模式（--detail）：显示完整 JSON（原行为）
+    """
+    has_detail, remaining_args = parse_flag(args, "--detail")
+
+    config = load_config()
+    name, profile, err = None, None, None
+
+    if remaining_args:
+        name = remaining_args[0]
+        name, profile, err = get_profile_or_current(name)
+    else:
+        name, profile, err = get_profile_or_current()
+
+    if err:
+        if remaining_args:
+            print_error(err)
+        elif OMA_CONFIG.exists():
+            print_warning(err)
+            print_info("当前 OMA 配置文件内容:")
+            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+                print(f.read())
+        else:
+            print_error(err)
+        return
+
+    if not has_detail and check_template_profile(profile):
+        summary, _ = get_template_summary(profile)
+        print_type_summary(summary, f"配置文件 '{name}' (快速模式):")
+        return
+
+    if not has_detail and not check_template_profile(profile):
+        print_warning(f"配置文件 '{name}' 不符合模板结构，按详细模式显示")
+
+    print_info(f"配置文件 '{name}' 的内容:")
+    profile_path = get_profile_path(name)
+    with open(profile_path, 'r', encoding='utf-8') as f:
+        print(f.read())
+
+
+def cmd_rename(args: List[str]) -> None:
+    """重命名配置文件"""
+    if len(args) < 2:
+        print_error("用法: oma-switch rename <name> <newname>")
+        sys.exit(1)
+
+    name, newname = args[0], args[1]
+    config = load_config()
+
+    if name not in config["profiles"]:
+        print_error(f"配置文件 '{name}' 不存在")
+        sys.exit(1)
+
+    if newname in config["profiles"]:
+        print_error(f"配置文件 '{newname}' 已存在")
+        sys.exit(1)
+
+    old_path = get_profile_path(name)
+    new_path = get_profile_path(newname)
+    old_path.rename(new_path)
+
+    config["profiles"][newname] = config["profiles"][name]
+    config["profiles"][newname]["renamed"] = datetime.now().isoformat()
+    del config["profiles"][name]
+
+    if config.get("current") == name:
+        config["current"] = newname
+
+    save_config(config)
+    print_success(f"已将配置文件 '{name}' 重命名为 '{newname}'")
+
+
+def cmd_list(args: List[str]) -> None:
+    """列出所有配置文件"""
+    config = load_config()
+    current = config.get("current")
+
+    if not config["profiles"]:
+        print_warning("没有可用的配置文件")
+        print_info("使用 'oma-switch create <name>' 创建新配置文件")
+        return
+
+    print_info("可用的配置文件:")
+    print("-" * 80)
+
+    for name in sorted(config["profiles"].keys()):
+        is_current = name == current
+        marker = " *" if is_current else ""
+        color = Colors.GREEN if is_current else Colors.NC
+
+        profile_path = get_profile_path(name)
+        if not profile_path.exists():
+            print(f"{color}  {name}{marker} (文件丢失){Colors.NC}")
+            continue
+
+        profile = load_profile_json(name)
+        if profile and check_template_profile(profile):
+            summary, current_models = get_template_summary(profile)
+            strong = current_models.get("强模型", "—")
+            weak = current_models.get("弱模型", "—")
+            multi = current_models.get("多模态模型", "—")
+            print(f"{color}  {name}{marker}{Colors.NC}")
+            print(f"     强: {Colors.CYAN}{strong}{Colors.NC}")
+            print(f"     弱: {Colors.CYAN}{weak}{Colors.NC}")
+            print(f"     多模态: {Colors.CYAN}{multi}{Colors.NC}")
+        else:
+            print(f"{color}  {name}{marker}{Colors.NC}")
+
+    print("-" * 80)
+    print_info("* 表示当前使用的配置文件")
+
+
+def cmd_switch(args: List[str]) -> None:
+    """切换配置文件"""
+    if not args:
+        print_error("用法: oma-switch switch <name>")
+        sys.exit(1)
+
+    name = args[0]
+    config = load_config()
+
+    if name not in config["profiles"]:
+        print_error(f"配置文件 '{name}' 不存在")
+        sys.exit(1)
+
+    profile_path = get_profile_path(name)
+    if not profile_path.exists():
+        print_error(f"配置文件 '{name}' 文件丢失")
+        sys.exit(1)
+
+    if OMA_CONFIG.exists():
+        backup_path = OMA_CONFIG.with_suffix('.json.backup')
+        shutil.copy2(OMA_CONFIG, backup_path)
+
+    shutil.copy2(profile_path, OMA_CONFIG)
+    config["current"] = name
+    config["profiles"][name]["last_used"] = datetime.now().isoformat()
+    save_config(config)
+
+    print_success(f"已切换到配置文件 '{name}'")
+
+
+def cmd_diff(args: List[str]) -> None:
+    """
+    比较配置文件差异。
+
+    快速模式（默认）：比较三类模型的差异
+    详细模式（--detail）：系统 diff 命令（原行为）
+    """
+    has_detail, remaining_args = parse_flag(args, "--detail")
+
+    if not remaining_args:
+        print_error("用法: oma-switch diff [--detail] <name1> [name2]")
+        print_info("如果只提供一个参数，将与当前配置比较")
+        sys.exit(1)
+
+    config = load_config()
+    name1 = remaining_args[0]
+    name2 = remaining_args[1] if len(remaining_args) > 1 else config.get("current")
+
+    if name1 not in config["profiles"]:
+        print_error(f"配置文件 '{name1}' 不存在")
+        sys.exit(1)
+    if name2 and name2 not in config["profiles"]:
+        print_error(f"配置文件 '{name2}' 不存在")
+        sys.exit(1)
+
+    profile1 = load_profile_json(name1)
+    if profile1 is None:
+        print_error(f"配置文件 '{name1}' 文件丢失或格式错误")
+        sys.exit(1)
+
+    profile2 = None
+    if name2:
+        profile2 = load_profile_json(name2)
+        if profile2 is None:
+            print_error(f"配置文件 '{name2}' 文件丢失或格式错误")
+            sys.exit(1)
+    else:
+        if not OMA_CONFIG.exists():
+            print_error("当前 OMA 配置文件不存在")
+            sys.exit(1)
+        with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            profile2 = json.load(f)
+
+    if not has_detail and check_template_profile(profile1) and check_template_profile(profile2):
+        summary1, current1 = get_template_summary(profile1)
+        summary2, current2 = get_template_summary(profile2)
+
+        label2 = name2 or "当前配置"
+        print_info(f"比较 '{name1}' 和 '{label2}' (快速模式):")
+        print()
+
+        for t in TEMPLATE_GROUPS:
+            m1 = current1.get(t, "—")
+            m2 = current2.get(t, "—")
+            if m1 == m2:
+                status = f"{Colors.GREEN}一致{Colors.NC}"
+            else:
+                status = f"{Colors.YELLOW}不同{Colors.NC}"
+
+            print(f"  {Colors.BOLD}{t}{Colors.NC}: {status}")
+            print(f"    {name1}: {Colors.CYAN}{m1}{Colors.NC}")
+
+            if t in summary1:
+                agent_keys1 = [k for s, k in summary1[t].get(m1, []) if s == "agents"]
+                cat_keys1 = [k for s, k in summary1[t].get(m1, []) if s == "categories"]
+                parts1 = []
+                if agent_keys1:
+                    parts1.append(f"agents: {', '.join(sorted(agent_keys1))}")
+                if cat_keys1:
+                    parts1.append(f"categories: {', '.join(sorted(cat_keys1))}")
+                for p in parts1:
+                    print(f"      {p}")
+
+            print(f"    {label2}: {Colors.CYAN}{m2}{Colors.NC}")
+            if t in summary2:
+                agent_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "agents"]
+                cat_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "categories"]
+                parts2 = []
+                if agent_keys2:
+                    parts2.append(f"agents: {', '.join(sorted(agent_keys2))}")
+                if cat_keys2:
+                    parts2.append(f"categories: {', '.join(sorted(cat_keys2))}")
+                for p in parts2:
+                    print(f"      {p}")
+            print()
+        return
+
+    if not has_detail:
+        if not check_template_profile(profile1):
+            print_warning(f"配置文件 '{name1}' 不符合模板结构，按详细模式比较")
+        elif profile2 and not check_template_profile(profile2):
+            label2 = name2 or "当前配置"
+            print_warning(f"配置文件 '{label2}' 不符合模板结构，按详细模式比较")
+
+    if name2:
+        path1 = get_profile_path(name1)
+        path2 = get_profile_path(name2)
+        print_info(f"比较 '{name1}' 和 '{name2}':")
+    else:
+        path1 = get_profile_path(name1)
+        path2 = OMA_CONFIG
+        print_info(f"比较 '{name1}' 和当前配置:")
+
+    try:
+        subprocess.run(['diff', '--color=auto', str(path1), str(path2)])
+    except FileNotFoundError:
+        with open(path1, 'r') as f1, open(path2, 'r') as f2:
+            lines1 = f1.readlines()
+            lines2 = f2.readlines()
+        max_len = max(len(lines1), len(lines2))
+        for i in range(max_len):
+            l1 = lines1[i].rstrip() if i < len(lines1) else ""
+            l2 = lines2[i].rstrip() if i < len(lines2) else ""
+            if l1 != l2:
+                print(f"行 {i + 1}:")
+                print(f"  {name1}: {l1}")
+                print(f"  {name2 or 'current'}: {l2}")
+
+
+def cmd_backup(args: List[str]) -> None:
+    """备份当前配置"""
+    if not OMA_CONFIG.exists():
+        print_error("当前 OMA 配置文件不存在")
+        sys.exit(1)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"backup_{timestamp}"
+    backup_path = PROFILES_DIR / f"{backup_name}.json"
+
+    shutil.copy2(OMA_CONFIG, backup_path)
+
+    config = load_config()
+    config["profiles"][backup_name] = {
+        "created": datetime.now().isoformat(),
+        "description": f"自动备份于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    }
+    save_config(config)
+
+    print_success(f"已创建备份: {backup_name}")
+
+
+def cmd_help() -> None:
+    """显示帮助信息"""
+    help_text = f"""
+OMA 配置文件切换工具 (v2.0)
+
+用法: oma-switch <command> [args...] [--detail]
+
+快速模式（默认）与详细模式（--detail）:
+  view, create, diff 命令支持两种模式。
+
+  快速模式（默认）：按三类模型（强模型/弱模型/多模态模型）维度操作
+  详细模式（--detail）：完整的 JSON 编辑/查看/diff（原行为）
+
+  快速模式只适用于符合模板结构（agents + categories）的配置文件。
+  不满足时，view/diff 自动降级到详细模式，create 会询问是否进入详细模式。
+
+命令:
+  管理相关:
+    add <filepath> <name>    添加配置文件到可用列表
+    rm <name>                删除配置文件
+    rename <name> <newname>  重命名配置文件
+    list                     列出所有配置文件
+    switch <name>            切换到指定配置文件
+    backup                   备份当前配置
+    help                     显示此帮助信息
+
+  支持双模式（快速/详细）:
+    edit [--detail] <name>    编辑配置文件
+      - 快速模式: 交互式修改三类模型，自动生成
+      - 详细模式: 打开编辑器编辑完整 JSON
+
+    create [--detail] <name>  创建新配置
+      - 快速模式: 指定三类模型自动生成
+      - 详细模式: 复制当前配置并打开编辑器
+
+    view [--detail] [name]    查看配置文件
+      - 快速模式: 按三类模型分组显示
+      - 详细模式: 显示完整 JSON
+
+    diff [--detail] <name1> [name2]  比较配置文件
+      - 快速模式: 比较三类模型差异
+      - 详细模式: 系统 diff 命令
+
+快速模式的三类模型:
+  强模型（Pro）  → sisyphus, oracle, hephaestus 等需要深度推理的智能体
+  弱模型（Flash）→ explore, librarian 等搜索/执行型智能体
+  多模态模型     → multimodal-looker 等需要视觉能力的智能体
+
+配置文件存储位置: ~/.config/oma-switch/profiles/
+"""
+    print(help_text)
+
+
+def main() -> None:
+    """主函数"""
+    ensure_dirs()
+    check_current_unrecorded()
+
+    if len(sys.argv) < 2:
+        cmd_help()
+        sys.exit(0)
+
+    command = sys.argv[1]
+    args = sys.argv[2:]
+
+    commands = {
+        "add": cmd_add,
+        "rm": cmd_rm,
+        "edit": cmd_edit,
+        "create": cmd_create,
+        "view": cmd_view,
+        "rename": cmd_rename,
+        "list": cmd_list,
+        "switch": cmd_switch,
+        "diff": cmd_diff,
+        "backup": cmd_backup,
+        "help": cmd_help,
+    }
+
+    if command in commands:
+        if command == "help":
+            commands[command]()
+        else:
+            commands[command](args)
+    else:
+        print_error(f"未知命令: {command}")
+        cmd_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
