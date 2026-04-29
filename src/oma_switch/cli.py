@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Any, Tuple
 CONFIG_DIR = Path.home() / ".config" / "oma-switch"
 PROFILES_DIR = CONFIG_DIR / "profiles"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+TEMPLATE_FILE = CONFIG_DIR / "template.json"
 OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
 
 # DCP (Dynamic Context Pruning) 插件配置
@@ -91,11 +92,44 @@ def save_dcp_config(config: Dict[str, Any]) -> None:
 
 
 def update_dcp_state(enable: bool) -> None:
-    """更新 DCP 插件状态"""
-    dcp_config = get_dcp_config()
-    dcp_config["enabled"] = enable
-    save_dcp_config(dcp_config)
+    """更新 DCP 插件状态（仅修改 enabled 字段，保留其他配置）"""
+    import re
     state = "启用" if enable else "禁用"
+    value = "true" if enable else "false"
+
+    if not DCP_CONFIG_FILE.exists():
+        OPENCODE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write(f'{{\n  "enabled": {value}\n}}\n')
+        print_info(f"DCP 插件已{state}")
+        return
+
+    with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # 替换 "enabled": true/false，保留文件其余内容不变
+    new_content, count = re.subn(
+        r'("enabled"\s*:\s*)(true|false)',
+        rf'\g<1>{value}',
+        content,
+        count=1,
+    )
+
+    if count == 0:
+        # enabled 字段不存在，尝试在第一个 { 后插入
+        new_content, count = re.subn(
+            r'(\{)',
+            rf'{{\n  "enabled": {value},',
+            content,
+            count=1,
+        )
+
+    if count > 0:
+        with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+    else:
+        print_error("无法更新 DCP 配置：文件格式异常")
+
     print_info(f"DCP 插件已{state}")
 
 
@@ -189,17 +223,19 @@ def check_current_unrecorded() -> None:
 
 # ── 模板定义 ─────────────────────────────────────────────────────
 # 三类模型分别包含哪些 agents 和 categories
-TEMPLATE_GROUPS = {
+# 默认模板（内置）
+DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
     "强模型": {
         ("agents", "sisyphus"),
         ("agents", "hephaestus"),
         ("agents", "oracle"),
         ("agents", "metis"),
+        ("agents", "atlas"),
+        ("agents", "sisyphus-junior"),
         ("categories", "ultrabrain"),
     },
     "弱模型": {
         ("agents", "prometheus"),
-        ("agents", "atlas"),
         ("agents", "momus"),
         ("agents", "explore"),
         ("agents", "librarian"),
@@ -217,6 +253,41 @@ TEMPLATE_GROUPS = {
 }
 
 
+def _template_to_json(template: Dict[str, set]) -> dict:
+    """将内部模板格式转为可序列化的 JSON 格式"""
+    return {
+        type_label: sorted([list(entry) for entry in entries])
+        for type_label, entries in template.items()
+    }
+
+
+def _template_from_json(data: dict) -> Dict[str, set]:
+    """将 JSON 格式转为内部模板格式"""
+    result = {}
+    for type_label, entries in data.items():
+        result[type_label] = {tuple(entry) for entry in entries}
+    return result
+
+
+def load_template() -> Dict[str, set]:
+    """加载模板：优先使用用户自定义模板，否则使用默认模板"""
+    if TEMPLATE_FILE.exists():
+        try:
+            with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return _template_from_json(data)
+        except (json.JSONDecodeError, IOError):
+            print_warning("模板文件损坏，使用默认模板")
+    return copy.deepcopy(DEFAULT_TEMPLATE_GROUPS)
+
+
+def save_template(template: Dict[str, set]) -> None:
+    """保存用户自定义模板到文件"""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(TEMPLATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(_template_to_json(template), f, indent=2, ensure_ascii=False)
+
+
 def check_template_profile(profile: dict) -> bool:
     """
     检查 profile 是否满足模板要求：
@@ -226,7 +297,8 @@ def check_template_profile(profile: dict) -> bool:
     if not isinstance(profile, dict):
         return False
 
-    for type_label, entries in TEMPLATE_GROUPS.items():
+    template = load_template()
+    for type_label, entries in template.items():
         models = set()
         for section, key in entries:
             entry = profile.get(section, {}).get(key)
@@ -250,7 +322,8 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
     summary = {}
     current_models = {}
 
-    for type_label, entries in TEMPLATE_GROUPS.items():
+    template = load_template()
+    for type_label, entries in template.items():
         section, key = next(iter(entries))
         common_model = profile.get(section, {}).get(key, {}).get("model", "")
 
@@ -266,7 +339,8 @@ def print_type_summary(summary: Dict, title: str = None) -> None:
         print_info(title)
         print()
 
-    for t in TEMPLATE_GROUPS:
+    template = load_template()
+    for t in template:
         if t not in summary:
             continue
         entries = summary[t]
@@ -358,7 +432,8 @@ def generate_profile_from_types(
     按 TEMPLATE_GROUPS 替换各角色的模型。
     """
     new_profile = copy.deepcopy(template)
-    for type_label, entries in TEMPLATE_GROUPS.items():
+    tpl = load_template()
+    for type_label, entries in tpl.items():
         new_model = model_map.get(type_label)
         if new_model:
             for section, key in entries:
@@ -888,7 +963,7 @@ def cmd_diff(args: List[str]) -> None:
         print_info(f"比较 '{name1}' 和 '{label2}' (快速模式):")
         print()
 
-        for t in TEMPLATE_GROUPS:
+        for t in load_template():
             m1 = current1.get(t, "—")
             m2 = current2.get(t, "—")
             if m1 == m2:
@@ -1001,6 +1076,172 @@ def cmd_dcp_config(args: List[str]) -> None:
         print(f"  - {Colors.CYAN}{model}{Colors.NC}")
 
 
+def sync_profiles_after_template_change(old_template: Dict[str, set], new_template: Dict[str, set]) -> int:
+    """同步所有 profiles 到新模板。返回更新的 profile 数量。"""
+    config = load_config()
+    updated = 0
+
+    old_entry_to_group = {}
+    for group, entries in old_template.items():
+        for entry in entries:
+            old_entry_to_group[entry] = group
+
+    for name in config.get("profiles", {}):
+        profile = load_profile_json(name)
+        if profile is None:
+            continue
+
+        changed = False
+        for group, entries in new_template.items():
+            for section, key in entries:
+                if section not in profile:
+                    profile.setdefault(section, {})
+                if key not in profile[section]:
+                    profile[section][key] = {"model": ""}
+                    changed = True
+
+                old_group = old_entry_to_group.get((section, key))
+                if old_group and old_group != group:
+                    old_model = profile.get(section, {}).get(key, {}).get("model", "")
+                    group_models = set()
+                    for s, k in new_template.get(group, set()):
+                        m = profile.get(s, {}).get(k, {}).get("model")
+                        if m:
+                            group_models.add(m)
+                    group_models.discard("")
+                    if group_models:
+                        profile[section][key]["model"] = sorted(group_models)[0]
+                    else:
+                        profile[section][key]["model"] = old_model
+                    changed = True
+
+        if changed:
+            profile_path = get_profile_path(name)
+            with open(profile_path, 'w', encoding='utf-8') as f:
+                json.dump(profile, f, indent=2, ensure_ascii=False)
+            updated += 1
+
+    return updated
+
+
+def cmd_template(args: List[str]) -> None:
+    """查看或编辑模板"""
+    if not args:
+        template = load_template()
+        is_custom = TEMPLATE_FILE.exists()
+
+        if is_custom:
+            print_info("当前模板 (自定义):")
+        else:
+            print_info("当前模板 (默认):")
+
+        print()
+        for type_label, entries in template.items():
+            agent_keys = sorted([k for s, k in entries if s == "agents"])
+            cat_keys = sorted([k for s, k in entries if s == "categories"])
+            print(f"  {Colors.BOLD}{type_label}{Colors.NC}:")
+            if agent_keys:
+                print(f"    agents: {', '.join(agent_keys)}")
+            if cat_keys:
+                print(f"    categories: {', '.join(cat_keys)}")
+        print()
+
+        print_dim(f"模板文件: {TEMPLATE_FILE}")
+        if is_custom:
+            print_dim("使用 'oma-switch template reset' 恢复默认模板")
+        else:
+            print_dim("使用 'oma-switch template edit' 自定义模板")
+        return
+
+    subcommand = args[0]
+
+    if subcommand == "edit":
+        template = load_template()
+        json_data = _template_to_json(template)
+
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(TEMPLATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+        print_info("正在编辑模板...")
+        if open_editor(TEMPLATE_FILE):
+            if is_valid_json(TEMPLATE_FILE):
+                try:
+                    with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
+                        new_data = json.load(f)
+                    new_template = _template_from_json(new_data)
+
+                    updated = sync_profiles_after_template_change(template, new_template)
+                    save_template(new_template)
+
+                    print_success(f"模板已更新，同步了 {updated} 个配置文件")
+                except (json.JSONDecodeError, KeyError, ValueError, IOError) as e:
+                    print_error(f"模板格式错误: {e}")
+                    if template != DEFAULT_TEMPLATE_GROUPS:
+                        save_template(template)
+                        print_info("已恢复之前的模板")
+                    else:
+                        TEMPLATE_FILE.unlink(missing_ok=True)
+                        print_info("已恢复默认模板")
+            else:
+                print_error("模板文件格式错误，已恢复")
+                if template != DEFAULT_TEMPLATE_GROUPS:
+                    save_template(template)
+                else:
+                    TEMPLATE_FILE.unlink(missing_ok=True)
+        else:
+            print_error("编辑失败")
+        return
+
+    if subcommand == "reset":
+        if TEMPLATE_FILE.exists():
+            old_template = load_template()
+            try:
+                updated = sync_profiles_after_template_change(old_template, DEFAULT_TEMPLATE_GROUPS)
+                TEMPLATE_FILE.unlink()
+                print_success(f"已恢复默认模板，同步了 {updated} 个配置文件")
+            except IOError as e:
+                print_error(f"同步配置文件失败: {e}")
+                print_warning("模板文件未删除，配置可能不一致")
+        else:
+            print_info("当前使用的就是默认模板")
+        return
+
+    if subcommand == "diff":
+        template = load_template()
+        is_custom = TEMPLATE_FILE.exists()
+
+        if not is_custom:
+            print_info("当前使用默认模板，没有差异可比较")
+            return
+
+        print_info("自定义模板 vs 默认模板:")
+        print()
+
+        all_groups = set(template.keys()) | set(DEFAULT_TEMPLATE_GROUPS.keys())
+        for group in sorted(all_groups):
+            custom_entries = template.get(group, set())
+            default_entries = DEFAULT_TEMPLATE_GROUPS.get(group, set())
+
+            added = custom_entries - default_entries
+            removed = default_entries - custom_entries
+
+            if not added and not removed:
+                continue
+
+            print(f"  {Colors.BOLD}{group}{Colors.NC}:")
+            for section, key in sorted(added):
+                print(f"    {Colors.GREEN}+ {section}.{key}{Colors.NC}")
+            for section, key in sorted(removed):
+                print(f"    {Colors.RED}- {section}.{key}{Colors.NC}")
+            print()
+        return
+
+    print_error(f"未知子命令: {subcommand}")
+    print_info("用法: oma-switch template [edit|reset|diff]")
+    sys.exit(1)
+
+
 def cmd_help() -> None:
     """显示帮助信息"""
     help_text = f"""
@@ -1025,6 +1266,7 @@ OMA 配置文件切换工具 (v2.0)
     list                     列出所有配置文件
     switch <name>            切换到指定配置文件
     backup                   备份当前配置
+    template [edit|reset|diff] 查看/编辑/重置/比较模板
     dcp-config [models...]   配置 DCP 触发模型
     help                     显示此帮助信息
 
@@ -1083,6 +1325,7 @@ def main() -> None:
         "switch": cmd_switch,
         "diff": cmd_diff,
         "backup": cmd_backup,
+        "template": cmd_template,
         "dcp-config": cmd_dcp_config,
         "help": cmd_help,
     }
