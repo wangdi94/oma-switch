@@ -3,7 +3,7 @@
 OMA (Oh-My-Agent) 配置文件切换工具
 用于管理 opencode 的 oh-my-openagent.json 配置文件
 
-快速模式（默认）：按三类模型（强/弱/多模态）进行查看、创建、比较
+快速模式（默认）：按四类模型（强/中/弱/多模态）进行查看、创建、比较
 详细模式（--detail）：完整的 JSON 操作（编辑/全文查看/系统 diff）
 """
 
@@ -219,33 +219,34 @@ def check_current_unrecorded() -> None:
         print_success(f"已记录当前配置文件为 '{name}'")
 
 
-# ── 三类模型分析相关函数 ──────────────────────────────────────────
+# ── 模型分析相关函数 ──────────────────────────────────────────────
 
 # ── 模板定义 ─────────────────────────────────────────────────────
-# 三类模型分别包含哪些 agents 和 categories
 # 默认模板（内置）
 DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
     "强模型": {
         ("agents", "sisyphus"),
-        ("agents", "hephaestus"),
         ("agents", "oracle"),
         ("agents", "metis"),
-        ("agents", "atlas"),
-        ("agents", "sisyphus-junior"),
-        ("categories", "ultrabrain"),
-    },
-    "弱模型": {
         ("agents", "prometheus"),
         ("agents", "momus"),
-        ("agents", "explore"),
-        ("agents", "librarian"),
+        ("categories", "ultrabrain"),
+    },
+    "中模型": {
+        ("agents", "sisyphus-junior"),
+        ("agents", "hephaestus"),
+        ("agents", "atlas"),
         ("categories", "deep"),
         ("categories", "artistry"),
+        ("categories", "unspecified-high"),
+        ("categories", "visual-engineering"),
+    },
+    "弱模型": {
+        ("agents", "explore"),
+        ("agents", "librarian"),
         ("categories", "quick"),
         ("categories", "unspecified-low"),
-        ("categories", "unspecified-high"),
         ("categories", "writing"),
-        ("categories", "visual-engineering"),
     },
     "多模态模型": {
         ("agents", "multimodal-looker"),
@@ -334,7 +335,7 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
 
 
 def print_type_summary(summary: Dict, title: str = None) -> None:
-    """打印格式化的三类模型摘要"""
+    """打印格式化的四类模型摘要"""
     if title:
         print_info(title)
         print()
@@ -392,7 +393,7 @@ def collect_all_models() -> List[str]:
 def prompt_select_model(
     type_label: str,
     all_models: List[str],
-    current: str = None
+    current = None
 ) -> str:
     """交互式提示用户选择一个模型"""
     print(f"  {Colors.BOLD}{type_label}{Colors.NC}")
@@ -409,8 +410,14 @@ def prompt_select_model(
     prompt_text += "）: "
     choice = input(prompt_text).strip()
 
-    if not choice and current:
-        return current
+    if not choice:
+        if current:
+            return current
+        elif all_models:
+            print_warning(f"未选择{type_label}，使用第一个可用模型")
+            return all_models[0]
+        else:
+            return ""
 
     if choice.isdigit():
         idx = int(choice) - 1
@@ -553,7 +560,7 @@ def cmd_edit(args: List[str]) -> None:
     编辑配置文件。
 
     快速模式（默认）：
-      - 交互式修改三类模型，自动生成新配置
+      - 交互式修改四类模型，自动生成新配置
     详细模式（--detail）：
       - 打开编辑器编辑完整 JSON（原行为）
     """
@@ -622,10 +629,11 @@ def cmd_edit(args: List[str]) -> None:
     print_type_summary(summary, "当前模板结构:")
 
     strong = prompt_select_model("强模型", all_models, current_models["强模型"])
+    medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
     weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
     multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
 
-    model_map = {"强模型": strong, "弱模型": weak, "多模态模型": multi}
+    model_map = {"强模型": strong, "中模型": medium, "弱模型": weak, "多模态模型": multi}
     new_profile = generate_profile_from_types(profile, model_map)
 
     with open(profile_path, 'w', encoding='utf-8') as f:
@@ -650,7 +658,7 @@ def cmd_create(args: List[str]) -> None:
     创建新配置文件。
 
     快速模式（默认）：
-      - 以当前配置为模板，交互式指定三类模型
+      - 以当前配置为模板，交互式指定四类模型
       - 自动生成新配置文件
     详细模式（--detail）：
       - 复制当前配置并打开编辑器编辑（原行为）
@@ -696,35 +704,8 @@ def cmd_create(args: List[str]) -> None:
             print_error("创建失败")
         return
 
-    if not check_template_profile(current_profile):
-        print_warning("当前配置文件不符合模板结构，无法使用快速模式")
-        resp = input("是否进入详细模式（直接编辑）? (y/N): ").strip().lower()
-        if resp != 'y':
-            print_info("已取消")
-            return
-
-        profile_path = get_profile_path(name)
-        shutil.copy2(OMA_CONFIG, profile_path)
-
-        print_info(f"正在创建新配置文件 '{name}' (详细模式)...")
-        if open_editor(profile_path):
-            if is_valid_json(profile_path):
-                config["profiles"][name] = {
-                    "created": datetime.now().isoformat(),
-                    "description": ""
-                }
-                save_config(config)
-                print_success(f"已创建配置文件 '{name}'")
-            else:
-                profile_path.unlink()
-                print_error("配置文件格式错误，已取消创建")
-        else:
-            profile_path.unlink()
-            print_error("创建失败")
-        return
-
     print_info(f"正在创建新配置文件 '{name}' (快速模式)")
-    print("基于当前配置文件模板，指定三类模型:")
+    print("基于当前配置文件模板，指定四类模型:")
     print()
 
     summary, current_models = get_template_summary(current_profile)
@@ -733,10 +714,11 @@ def cmd_create(args: List[str]) -> None:
     print_type_summary(summary, "当前模板结构:")
 
     strong = prompt_select_model("强模型", all_models, current_models["强模型"])
+    medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
     weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
     multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
 
-    model_map = {"强模型": strong, "弱模型": weak, "多模态模型": multi}
+    model_map = {"强模型": strong, "中模型": medium, "弱模型": weak, "多模态模型": multi}
     new_profile = generate_profile_from_types(current_profile, model_map)
 
     profile_path = get_profile_path(name)
@@ -760,7 +742,7 @@ def cmd_view(args: List[str]) -> None:
     """
     查看配置文件。
 
-    快速模式（默认）：按三类模型分组显示
+    快速模式（默认）：按四类模型分组显示
     详细模式（--detail）：显示完整 JSON（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
@@ -859,10 +841,12 @@ def cmd_list(args: List[str]) -> None:
         if profile and check_template_profile(profile):
             summary, current_models = get_template_summary(profile)
             strong = current_models.get("强模型", "—")
+            medium = current_models.get("中模型", "—")
             weak = current_models.get("弱模型", "—")
             multi = current_models.get("多模态模型", "—")
             print(f"{color}  {name}{marker}{Colors.NC}")
             print(f"     强: {Colors.CYAN}{strong}{Colors.NC}")
+            print(f"     中: {Colors.CYAN}{medium}{Colors.NC}")
             print(f"     弱: {Colors.CYAN}{weak}{Colors.NC}")
             print(f"     多模态: {Colors.CYAN}{multi}{Colors.NC}")
         else:
@@ -916,7 +900,7 @@ def cmd_diff(args: List[str]) -> None:
     """
     比较配置文件差异。
 
-    快速模式（默认）：比较三类模型的差异
+    快速模式（默认）：比较四类模型的差异
     详细模式（--detail）：系统 diff 命令（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
@@ -1252,7 +1236,7 @@ OMA 配置文件切换工具 (v2.0)
 快速模式（默认）与详细模式（--detail）:
   view, create, diff 命令支持两种模式。
 
-  快速模式（默认）：按三类模型（强模型/弱模型/多模态模型）维度操作
+  快速模式（默认）：按四类模型（强模型/中模型/弱模型/多模态模型）维度操作
   详细模式（--detail）：完整的 JSON 编辑/查看/diff（原行为）
 
   快速模式只适用于符合模板结构（agents + categories）的配置文件。
@@ -1272,25 +1256,26 @@ OMA 配置文件切换工具 (v2.0)
 
   支持双模式（快速/详细）:
     edit [--detail] <name>    编辑配置文件
-      - 快速模式: 交互式修改三类模型，自动生成
+      - 快速模式: 交互式修改四类模型，自动生成
       - 详细模式: 打开编辑器编辑完整 JSON
 
     create [--detail] <name>  创建新配置
-      - 快速模式: 指定三类模型自动生成
+      - 快速模式: 指定四类模型自动生成
       - 详细模式: 复制当前配置并打开编辑器
 
     view [--detail] [name]    查看配置文件
-      - 快速模式: 按三类模型分组显示
+      - 快速模式: 按四类模型分组显示
       - 详细模式: 显示完整 JSON
 
     diff [--detail] <name1> [name2]  比较配置文件
-      - 快速模式: 比较三类模型差异
+      - 快速模式: 比较四类模型差异
       - 详细模式: 系统 diff 命令
 
-快速模式的三类模型:
-  强模型（Pro）  → sisyphus, oracle, hephaestus 等需要深度推理的智能体
-  弱模型（Flash）→ explore, librarian 等搜索/执行型智能体
-  多模态模型     → multimodal-looker 等需要视觉能力的智能体
+快速模式的四类模型:
+  强模型（Pro）      → sisyphus, oracle, metis, prometheus, momus, ultrabrain
+  中模型（Standard） → sisyphus-junior, hephaestus, atlas, deep, artistry, unspecified-high, visual-engineering
+  弱模型（Flash）    → explore, librarian, quick, unspecified-low, writing
+  多模态模型         → multimodal-looker
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
 
