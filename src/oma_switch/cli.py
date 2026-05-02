@@ -9,6 +9,7 @@ OMA (Oh-My-Agent) 配置文件切换工具
 
 import json
 import os
+import re
 import sys
 import copy
 import shutil
@@ -221,6 +222,19 @@ def check_current_unrecorded() -> None:
 
 # ── 模型分析相关函数 ──────────────────────────────────────────────
 
+def parse_model_with_variant(model_str: str) -> Tuple[str, Optional[str]]:
+    """解析 'model[variant]' 格式，返回 (model, variant)。
+    
+    例如:
+      "deepseek-v4-pro[max]" → ("deepseek-v4-pro", "max")
+      "gemini-3-pro"          → ("gemini-3-pro", None)
+    """
+    stripped = model_str.strip()
+    match = re.match(r'^(.+?)\s*\[(\w+)\]\s*$', stripped)
+    if match:
+        return match.group(1).strip(), match.group(2).lower()
+    return stripped, None
+
 # ── 模板定义 ─────────────────────────────────────────────────────
 # 默认模板（内置）
 DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
@@ -318,7 +332,7 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
     仅在 profile 通过 check_template_profile 后调用。
     返回: (summary, current_models)
     - summary: {类型: {模型名: [(section, key), ...]}}
-    - current_models: {类型: 模型名}
+    - current_models: {类型: (模型名, variant)} — variant 为 Optional[str]
     """
     summary = {}
     current_models = {}
@@ -326,16 +340,21 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
     template = load_template()
     for type_label, entries in template.items():
         section, key = next(iter(entries))
-        common_model = profile.get(section, {}).get(key, {}).get("model", "")
+        entry = profile.get(section, {}).get(key, {})
+        common_model = entry.get("model", "")
+        common_variant = entry.get("variant")
 
         summary[type_label] = {common_model: list(entries)}
-        current_models[type_label] = common_model
+        current_models[type_label] = (common_model, common_variant)
 
     return summary, current_models
 
 
-def print_type_summary(summary: Dict, title: str = None) -> None:
-    """打印格式化的四类模型摘要"""
+def print_type_summary(summary: Dict, title: str = None, current_models: Dict = None) -> None:
+    """打印格式化的四类模型摘要。
+    
+    current_models: {类型: (模型名, variant)} — 用于显示 variant 信息
+    """
     if title:
         print_info(title)
         print()
@@ -353,8 +372,14 @@ def print_type_summary(summary: Dict, title: str = None) -> None:
                 parts.append(f"agents: {', '.join(sorted(agent_keys))}")
             if cat_keys:
                 parts.append(f"categories: {', '.join(sorted(cat_keys))}")
+            # 显示 model 名称，如果有 variant 则附加 [variant=xxx]
+            model_display = model
+            if current_models and t in current_models:
+                _, variant = current_models[t]
+                if variant:
+                    model_display = f"{model} [variant={variant}]"
             print(f"  {Colors.BOLD}{t}{Colors.NC}:")
-            print(f"    {Colors.CYAN}{model}{Colors.NC}")
+            print(f"    {Colors.CYAN}{model_display}{Colors.NC}")
             for p in parts:
                 print(f"      {p}")
         print()
@@ -394,58 +419,78 @@ def prompt_select_model(
     type_label: str,
     all_models: List[str],
     current = None
-) -> str:
-    """交互式提示用户选择一个模型"""
+) -> Tuple[str, Optional[str]]:
+    """交互式提示用户选择一个模型，返回 (model, variant)。
+    
+    current 可以是 (model, variant) 元组或纯字符串（向后兼容）。
+    用户可以通过编号选择现有模型，也可以输入 model[variant] 格式。
+    """
+    # 兼容旧格式（纯字符串，无 variant）
+    if isinstance(current, tuple):
+        current_model, current_variant = current
+    else:
+        current_model, current_variant = current, None
+
     print(f"  {Colors.BOLD}{type_label}{Colors.NC}")
-    if current:
-        print(f"    当前: {Colors.CYAN}{current}{Colors.NC}")
+    if current_model:
+        if current_variant:
+            print(f"    当前: {Colors.CYAN}{current_model} [variant={current_variant}]{Colors.NC}")
+        else:
+            print(f"    当前: {Colors.CYAN}{current_model}{Colors.NC}")
     print(f"    可用模型:")
     for i, m in enumerate(all_models, 1):
-        marker = " (当前)" if m == current else ""
+        marker = " (当前)" if m == current_model else ""
         print(f"      [{i}] {m}{marker}")
 
-    prompt_text = f"  请输入{type_label}（编号/自定义模型名"
-    if current:
+    prompt_text = f"  请输入{type_label}（编号/模型名[variant]"
+    if current_model:
         prompt_text += "/留空=当前值"
     prompt_text += "）: "
     choice = input(prompt_text).strip()
 
     if not choice:
-        if current:
-            return current
+        if current_model:
+            return current_model, current_variant
         elif all_models:
             print_warning(f"未选择{type_label}，使用第一个可用模型")
-            return all_models[0]
+            return all_models[0], None
         else:
-            return ""
+            return "", None
 
     if choice.isdigit():
         idx = int(choice) - 1
         if 0 <= idx < len(all_models):
-            return all_models[idx]
+            return all_models[idx], None
         print_warning("无效编号，使用当前值")
-        return current or choice
+        return current_model or choice, current_variant
 
-    return choice or current
+    # 解析模型名中可能的 [variant] 后缀
+    return parse_model_with_variant(choice)
 
 
 def generate_profile_from_types(
     template: dict,
-    model_map: Dict[str, str]
+    model_map: Dict[str, Tuple[str, Optional[str]]]
 ) -> dict:
     """
     根据模板生成新 profile。
-    model_map: {类型: 新模型名}
-    按 TEMPLATE_GROUPS 替换各角色的模型。
+    model_map: {类型: (新模型名, variant)}
+    按模板分组替换各角色的 model 和 variant。
     """
     new_profile = copy.deepcopy(template)
     tpl = load_template()
     for type_label, entries in tpl.items():
-        new_model = model_map.get(type_label)
-        if new_model:
+        model_info = model_map.get(type_label)
+        if model_info:
+            new_model, variant = model_info
             for section, key in entries:
                 if section in new_profile and key in new_profile[section]:
                     new_profile[section][key]["model"] = new_model
+                    if variant:
+                        new_profile[section][key]["variant"] = variant
+                    else:
+                        # 如果之前有 variant 但现在没有指定，移除它
+                        new_profile[section][key].pop("variant", None)
     return new_profile
 
 
@@ -626,7 +671,7 @@ def cmd_edit(args: List[str]) -> None:
     summary, current_models = get_template_summary(profile)
     all_models = collect_all_models()
 
-    print_type_summary(summary, "当前模板结构:")
+    print_type_summary(summary, "当前模板结构:", current_models)
 
     strong = prompt_select_model("强模型", all_models, current_models["强模型"])
     medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
@@ -649,8 +694,8 @@ def cmd_edit(args: List[str]) -> None:
     print()
     print_success(f"配置文件 '{name}' 已更新")
 
-    new_summary, _ = get_template_summary(new_profile)
-    print_type_summary(new_summary, "更新后配置:")
+    new_summary, new_current = get_template_summary(new_profile)
+    print_type_summary(new_summary, "更新后配置:", new_current)
 
 
 def cmd_create(args: List[str]) -> None:
@@ -711,12 +756,12 @@ def cmd_create(args: List[str]) -> None:
     summary, current_models = get_template_summary(current_profile)
     all_models = collect_all_models()
 
-    print_type_summary(summary, "当前模板结构:")
+    print_type_summary(summary, "当前模板结构:", current_models)
 
-    strong = prompt_select_model("强模型", all_models, current_models["强模型"])
+    strong = prompt_select_model("强模型", all_models, current_models.get("强模型"))
     medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
-    weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
-    multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
+    weak = prompt_select_model("弱模型", all_models, current_models.get("弱模型"))
+    multi = prompt_select_model("多模态模型", all_models, current_models.get("多模态模型"))
 
     model_map = {"强模型": strong, "中模型": medium, "弱模型": weak, "多模态模型": multi}
     new_profile = generate_profile_from_types(current_profile, model_map)
@@ -734,8 +779,8 @@ def cmd_create(args: List[str]) -> None:
     print()
     print_success(f"已创建配置文件 '{name}'")
 
-    new_summary, _ = get_template_summary(new_profile)
-    print_type_summary(new_summary, "新配置摘要:")
+    new_summary, new_current = get_template_summary(new_profile)
+    print_type_summary(new_summary, "新配置摘要:", new_current)
 
 
 def cmd_view(args: List[str]) -> None:
@@ -769,8 +814,8 @@ def cmd_view(args: List[str]) -> None:
         return
 
     if not has_detail and check_template_profile(profile):
-        summary, _ = get_template_summary(profile)
-        print_type_summary(summary, f"配置文件 '{name}' (快速模式):")
+        summary, current_models = get_template_summary(profile)
+        print_type_summary(summary, f"配置文件 '{name}' (快速模式):", current_models)
         return
 
     if not has_detail and not check_template_profile(profile):
@@ -840,15 +885,15 @@ def cmd_list(args: List[str]) -> None:
         profile = load_profile_json(name)
         if profile and check_template_profile(profile):
             summary, current_models = get_template_summary(profile)
-            strong = current_models.get("强模型", "—")
-            medium = current_models.get("中模型", "—")
-            weak = current_models.get("弱模型", "—")
-            multi = current_models.get("多模态模型", "—")
+            strong_model, strong_variant = current_models.get("强模型", ("—", None))
+            medium_model, _ = current_models.get("中模型", ("—", None))
+            weak_model, _ = current_models.get("弱模型", ("—", None))
+            multi_model, _ = current_models.get("多模态模型", ("—", None))
             print(f"{color}  {name}{marker}{Colors.NC}")
-            print(f"     强: {Colors.CYAN}{strong}{Colors.NC}")
-            print(f"     中: {Colors.CYAN}{medium}{Colors.NC}")
-            print(f"     弱: {Colors.CYAN}{weak}{Colors.NC}")
-            print(f"     多模态: {Colors.CYAN}{multi}{Colors.NC}")
+            print(f"     强: {Colors.CYAN}{strong_model}{Colors.NC}{' [variant=' + strong_variant + ']' if strong_variant else ''}")
+            print(f"     中: {Colors.CYAN}{medium_model}{Colors.NC}")
+            print(f"     弱: {Colors.CYAN}{weak_model}{Colors.NC}")
+            print(f"     多模态: {Colors.CYAN}{multi_model}{Colors.NC}")
         else:
             print(f"{color}  {name}{marker}{Colors.NC}")
 
@@ -888,7 +933,7 @@ def cmd_switch(args: List[str]) -> None:
     profile = load_profile_json(name)
     if profile and check_template_profile(profile):
         _, current_models = get_template_summary(profile)
-        strong_model = current_models.get("强模型", "")
+        strong_model, _ = current_models.get("强模型", ("", None))
         dcp_trigger_models = config.get("dcp_trigger_models", [])
 
         if dcp_trigger_models:
@@ -948,15 +993,15 @@ def cmd_diff(args: List[str]) -> None:
         print()
 
         for t in load_template():
-            m1 = current1.get(t, "—")
-            m2 = current2.get(t, "—")
-            if m1 == m2:
+            m1, v1 = current1.get(t, ("—", None))
+            m2, v2 = current2.get(t, ("—", None))
+            if m1 == m2 and v1 == v2:
                 status = f"{Colors.GREEN}一致{Colors.NC}"
             else:
                 status = f"{Colors.YELLOW}不同{Colors.NC}"
 
             print(f"  {Colors.BOLD}{t}{Colors.NC}: {status}")
-            print(f"    {name1}: {Colors.CYAN}{m1}{Colors.NC}")
+            print(f"    {name1}: {Colors.CYAN}{m1}{Colors.NC}{' [variant=' + v1 + ']' if v1 else ''}")
 
             if t in summary1:
                 agent_keys1 = [k for s, k in summary1[t].get(m1, []) if s == "agents"]
@@ -969,7 +1014,7 @@ def cmd_diff(args: List[str]) -> None:
                 for p in parts1:
                     print(f"      {p}")
 
-            print(f"    {label2}: {Colors.CYAN}{m2}{Colors.NC}")
+            print(f"    {label2}: {Colors.CYAN}{m2}{Colors.NC}{' [variant=' + v2 + ']' if v2 else ''}")
             if t in summary2:
                 agent_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "agents"]
                 cat_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "categories"]
