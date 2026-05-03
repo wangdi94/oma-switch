@@ -134,6 +134,31 @@ def update_dcp_state(enable: bool) -> None:
     print_info(f"DCP 插件已{state}")
 
 
+def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
+    """将 source_profile 中的 agents 和 categories 合并到 OMA_CONFIG，保留其他字段。
+
+    只更新以下顶层键：
+    - agents
+    - categories
+    其他顶层键（$schema, background, permissions 等）保持不变。
+    如果 OMA_CONFIG 不存在，则以 source_profile 为基础创建。
+    """
+    current = {}
+    if OMA_CONFIG.exists():
+        try:
+            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+                current = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            print_warning("OMA 配置文件损坏，将使用新配置")
+
+    for key in ("agents", "categories"):
+        if key in source_profile:
+            current[key] = copy.deepcopy(source_profile[key])
+
+    with open(OMA_CONFIG, 'w', encoding='utf-8') as f:
+        json.dump(current, f, indent=2, ensure_ascii=False)
+
+
 def load_config() -> Dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {"current": None, "profiles": {}}
@@ -640,8 +665,10 @@ def cmd_edit(args: List[str]) -> None:
                 config["profiles"][name]["modified"] = datetime.now().isoformat()
                 save_config(config)
                 if config.get("current") == name:
-                    shutil.copy2(profile_path, OMA_CONFIG)
-                    print_info("已同步到 OMA 配置文件")
+                    edited_profile = load_profile_json(name)
+                    if edited_profile:
+                        merge_to_oma_config(edited_profile)
+                        print_info("已同步到 OMA 配置文件")
             else:
                 print_error("配置文件格式错误，已恢复")
         else:
@@ -657,8 +684,10 @@ def cmd_edit(args: List[str]) -> None:
                 config["profiles"][name]["modified"] = datetime.now().isoformat()
                 save_config(config)
                 if config.get("current") == name:
-                    shutil.copy2(profile_path, OMA_CONFIG)
-                    print_info("已同步到 OMA 配置文件")
+                    edited_profile = load_profile_json(name)
+                    if edited_profile:
+                        merge_to_oma_config(edited_profile)
+                        print_info("已同步到 OMA 配置文件")
             else:
                 print_error("配置文件格式错误，已恢复")
         else:
@@ -688,7 +717,7 @@ def cmd_edit(args: List[str]) -> None:
     save_config(config)
 
     if config.get("current") == name:
-        shutil.copy2(profile_path, OMA_CONFIG)
+        merge_to_oma_config(new_profile)
         print_info("已同步到 OMA 配置文件")
 
     print()
@@ -919,19 +948,23 @@ def cmd_switch(args: List[str]) -> None:
         print_error(f"配置文件 '{name}' 文件丢失")
         sys.exit(1)
 
+    profile = load_profile_json(name)
+    if profile is None:
+        print_error(f"配置文件 '{name}' 格式错误")
+        sys.exit(1)
+
     if OMA_CONFIG.exists():
         backup_path = OMA_CONFIG.with_suffix('.json.backup')
         shutil.copy2(OMA_CONFIG, backup_path)
 
-    shutil.copy2(profile_path, OMA_CONFIG)
+    merge_to_oma_config(profile)
     config["current"] = name
     config["profiles"][name]["last_used"] = datetime.now().isoformat()
     save_config(config)
 
     print_success(f"已切换到配置文件 '{name}'")
 
-    profile = load_profile_json(name)
-    if profile and check_template_profile(profile):
+    if check_template_profile(profile):
         _, current_models = get_template_summary(profile)
         strong_model, _ = current_models.get("强模型", ("", None))
         dcp_trigger_models = config.get("dcp_trigger_models", [])
