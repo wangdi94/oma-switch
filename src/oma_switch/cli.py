@@ -269,11 +269,11 @@ DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
         ("agents", "metis"),
         ("agents", "prometheus"),
         ("agents", "momus"),
+        ("agents", "hephaestus"),
         ("categories", "ultrabrain"),
     },
     "中模型": {
         ("agents", "sisyphus-junior"),
-        ("agents", "hephaestus"),
         ("agents", "atlas"),
         ("categories", "deep"),
         ("categories", "artistry"),
@@ -1350,8 +1350,8 @@ OMA 配置文件切换工具 (v2.0)
       - 详细模式: 系统 diff 命令
 
 快速模式的四类模型:
-  强模型（Pro）      → sisyphus, oracle, metis, prometheus, momus, ultrabrain
-  中模型（Standard） → sisyphus-junior, hephaestus, atlas, deep, artistry, unspecified-high, visual-engineering
+  强模型（Pro）      → sisyphus, oracle, metis, prometheus, momus, ultrabrain, hephaestus
+  中模型（Standard） → sisyphus-junior, atlas, deep, artistry, unspecified-high, visual-engineering
   弱模型（Flash）    → explore, librarian, quick, unspecified-low, writing
   多模态模型         → multimodal-looker
 
