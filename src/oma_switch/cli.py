@@ -275,20 +275,20 @@ DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
         ("agents", "momus"),
         ("agents", "plan"),
         ("categories", "ultrabrain"),
+        ("categories", "artistry"),
+        ("categories", "unspecified-high"),
     },
     "中模型": {
         ("agents", "sisyphus-junior"),
         ("categories", "deep"),
-        ("categories", "artistry"),
-        ("categories", "unspecified-high"),
         ("categories", "visual-engineering"),
+        ("categories", "writing"),
     },
     "弱模型": {
         ("agents", "explore"),
         ("agents", "librarian"),
         ("categories", "quick"),
         ("categories", "unspecified-low"),
-        ("categories", "writing"),
     },
     "多模态模型": {
         ("agents", "multimodal-looker"),
@@ -1364,9 +1364,9 @@ OMA 配置文件切换工具 (v2.0)
 
 快速模式的模型分类:
    主模型            → sisyphus, hephaestus, prometheus, atlas
-   强模型（Pro）      → oracle, metis, momus, plan, ultrabrain
-   中模型（Standard） → sisyphus-junior, deep, artistry, unspecified-high, visual-engineering
-   弱模型（Flash）    → explore, librarian, quick, unspecified-low, writing
+   强模型（Pro）      → oracle, metis, momus, plan, ultrabrain, artistry, unspecified-high
+   中模型（Standard） → sisyphus-junior, deep, visual-engineering, writing
+   弱模型（Flash）    → explore, librarian, quick, unspecified-low
    多模态模型         → multimodal-looker
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
