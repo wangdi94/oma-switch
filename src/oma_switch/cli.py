@@ -3,7 +3,7 @@
 OMA (Oh-My-Agent) 配置文件切换工具
 用于管理 opencode 的 oh-my-openagent.json 配置文件
 
-快速模式（默认）：按四类模型（强/中/弱/多模态）进行查看、创建、比较
+快速模式（默认）：按模板中的模型分类（主/强/中/弱/多模态等）进行查看、创建、比较
 详细模式（--detail）：完整的 JSON 操作（编辑/全文查看/系统 diff）
 """
 
@@ -263,18 +263,21 @@ def parse_model_with_variant(model_str: str) -> Tuple[str, Optional[str]]:
 # ── 模板定义 ─────────────────────────────────────────────────────
 # 默认模板（内置）
 DEFAULT_TEMPLATE_GROUPS: Dict[str, set] = {
-    "强模型": {
+    "主模型": {
         ("agents", "sisyphus"),
+        ("agents", "hephaestus"),
+        ("agents", "prometheus"),
+        ("agents", "atlas"),
+    },
+    "强模型": {
         ("agents", "oracle"),
         ("agents", "metis"),
-        ("agents", "prometheus"),
         ("agents", "momus"),
-        ("agents", "hephaestus"),
+        ("agents", "plan"),
         ("categories", "ultrabrain"),
     },
     "中模型": {
         ("agents", "sisyphus-junior"),
-        ("agents", "atlas"),
         ("categories", "deep"),
         ("categories", "artistry"),
         ("categories", "unspecified-high"),
@@ -328,16 +331,21 @@ def save_template(template: Dict[str, set]) -> None:
         json.dump(_template_to_json(template), f, indent=2, ensure_ascii=False)
 
 
-def check_template_profile(profile: dict) -> bool:
+def check_template_profile(profile: dict, template: Optional[Dict[str, set]] = None) -> bool:
     """
     检查 profile 是否满足模板要求：
     - 模板中定义的所有条目（agents + categories）都存在
     - 每个角色组（强/弱/多模态）内的所有条目使用同一个模型
+
+    参数:
+        profile: 待检查的 profile
+        template: 要匹配的模板，默认使用当前模板
     """
     if not isinstance(profile, dict):
         return False
 
-    template = load_template()
+    if template is None:
+        template = load_template()
     for type_label, entries in template.items():
         models = set()
         for section, key in entries:
@@ -376,7 +384,7 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
 
 
 def print_type_summary(summary: Dict, title: str = None, current_models: Dict = None) -> None:
-    """打印格式化的四类模型摘要。
+    """打印格式化的模型分类摘要。
     
     current_models: {类型: (模型名, variant)} — 用于显示 variant 信息
     """
@@ -630,7 +638,7 @@ def cmd_edit(args: List[str]) -> None:
     编辑配置文件。
 
     快速模式（默认）：
-      - 交互式修改四类模型，自动生成新配置
+      - 交互式修改各分类模型，自动生成新配置
     详细模式（--detail）：
       - 打开编辑器编辑完整 JSON（原行为）
     """
@@ -702,13 +710,15 @@ def cmd_edit(args: List[str]) -> None:
 
     print_type_summary(summary, "当前模板结构:", current_models)
 
-    strong = prompt_select_model("强模型", all_models, current_models["强模型"])
-    medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
-    weak = prompt_select_model("弱模型", all_models, current_models["弱模型"])
-    multi = prompt_select_model("多模态模型", all_models, current_models["多模态模型"])
-
-    model_map = {"强模型": strong, "中模型": medium, "弱模型": weak, "多模态模型": multi}
+    model_map = {}
+    for type_label in load_template():
+        model_info = prompt_select_model(type_label, all_models, current_models.get(type_label))
+        model_map[type_label] = model_info
     new_profile = generate_profile_from_types(profile, model_map)
+
+    if not check_template_profile(new_profile):
+        print_error("编辑后的配置不满足模板约束（请确保同一分组内所有 agent/category 使用相同模型）")
+        return
 
     with open(profile_path, 'w', encoding='utf-8') as f:
         json.dump(new_profile, f, indent=2, ensure_ascii=False)
@@ -732,7 +742,7 @@ def cmd_create(args: List[str]) -> None:
     创建新配置文件。
 
     快速模式（默认）：
-      - 以当前配置为模板，交互式指定四类模型
+      - 以当前配置为模板，交互式指定各分类模型
       - 自动生成新配置文件
     详细模式（--detail）：
       - 复制当前配置并打开编辑器编辑（原行为）
@@ -779,7 +789,7 @@ def cmd_create(args: List[str]) -> None:
         return
 
     print_info(f"正在创建新配置文件 '{name}' (快速模式)")
-    print("基于当前配置文件模板，指定四类模型:")
+    print("基于当前配置文件模板，指定各分类模型:")
     print()
 
     summary, current_models = get_template_summary(current_profile)
@@ -787,13 +797,15 @@ def cmd_create(args: List[str]) -> None:
 
     print_type_summary(summary, "当前模板结构:", current_models)
 
-    strong = prompt_select_model("强模型", all_models, current_models.get("强模型"))
-    medium = prompt_select_model("中模型", all_models, current_models.get("中模型"))
-    weak = prompt_select_model("弱模型", all_models, current_models.get("弱模型"))
-    multi = prompt_select_model("多模态模型", all_models, current_models.get("多模态模型"))
-
-    model_map = {"强模型": strong, "中模型": medium, "弱模型": weak, "多模态模型": multi}
+    model_map = {}
+    for type_label in load_template():
+        model_info = prompt_select_model(type_label, all_models, current_models.get(type_label))
+        model_map[type_label] = model_info
     new_profile = generate_profile_from_types(current_profile, model_map)
+
+    if not check_template_profile(new_profile):
+        print_error("生成的配置不满足模板约束（请确保同一分组内所有 agent/category 使用相同模型）")
+        return
 
     profile_path = get_profile_path(name)
     with open(profile_path, 'w', encoding='utf-8') as f:
@@ -816,8 +828,8 @@ def cmd_view(args: List[str]) -> None:
     """
     查看配置文件。
 
-    快速模式（默认）：按四类模型分组显示
-    详细模式（--detail）：显示完整 JSON（原行为）
+快速模式（默认）：按模板分组显示
+   详细模式（--detail）：显示完整 JSON（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
 
@@ -914,15 +926,11 @@ def cmd_list(args: List[str]) -> None:
         profile = load_profile_json(name)
         if profile and check_template_profile(profile):
             summary, current_models = get_template_summary(profile)
-            strong_model, strong_variant = current_models.get("强模型", ("—", None))
-            medium_model, _ = current_models.get("中模型", ("—", None))
-            weak_model, _ = current_models.get("弱模型", ("—", None))
-            multi_model, _ = current_models.get("多模态模型", ("—", None))
             print(f"{color}  {name}{marker}{Colors.NC}")
-            print(f"     强: {Colors.CYAN}{strong_model}{Colors.NC}{' [variant=' + strong_variant + ']' if strong_variant else ''}")
-            print(f"     中: {Colors.CYAN}{medium_model}{Colors.NC}")
-            print(f"     弱: {Colors.CYAN}{weak_model}{Colors.NC}")
-            print(f"     多模态: {Colors.CYAN}{multi_model}{Colors.NC}")
+            for type_label in load_template():
+                model, variant = current_models.get(type_label, ("—", None))
+                variant_str = f' [variant={variant}]' if variant else ''
+                print(f"     {type_label}: {Colors.CYAN}{model}{Colors.NC}{variant_str}")
         else:
             print(f"{color}  {name}{marker}{Colors.NC}")
 
@@ -978,8 +986,8 @@ def cmd_diff(args: List[str]) -> None:
     """
     比较配置文件差异。
 
-    快速模式（默认）：比较四类模型的差异
-    详细模式（--detail）：系统 diff 命令（原行为）
+快速模式（默认）：比较各分类模型的差异
+   详细模式（--detail）：系统 diff 命令（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
 
@@ -1153,6 +1161,11 @@ def sync_profiles_after_template_change(old_template: Dict[str, set], new_templa
         if profile is None:
             continue
 
+        # 跳过不满足旧模板的 profile（如 --detail 模式创建的），
+        # 避免对这些 profile 误加空条目并错误计数
+        if not check_template_profile(profile, old_template):
+            continue
+
         changed = False
         for group, entries in new_template.items():
             for section, key in entries:
@@ -1314,46 +1327,47 @@ OMA 配置文件切换工具 (v2.0)
 快速模式（默认）与详细模式（--detail）:
   view, create, diff 命令支持两种模式。
 
-  快速模式（默认）：按四类模型（强模型/中模型/弱模型/多模态模型）维度操作
-  详细模式（--detail）：完整的 JSON 编辑/查看/diff（原行为）
+   快速模式（默认）：按模板中的模型分类（强/中/弱/多模态等）维度操作
+   详细模式（--detail）：完整的 JSON 编辑/查看/diff（原行为）
 
-  快速模式只适用于符合模板结构（agents + categories）的配置文件。
-  不满足时，view/diff 自动降级到详细模式，create 会询问是否进入详细模式。
+   快速模式只适用于符合模板结构（agents + categories）的配置文件。
+   不满足时，view/diff 自动降级到详细模式，create 会询问是否进入详细模式。
 
 命令:
-  管理相关:
-    add <filepath> <name>    添加配置文件到可用列表
-    rm <name>                删除配置文件
-    rename <name> <newname>  重命名配置文件
-    list                     列出所有配置文件
-    switch <name>            切换到指定配置文件
-    backup                   备份当前配置
-    template [edit|reset|diff] 查看/编辑/重置/比较模板
-    dcp-config [models...]   配置 DCP 触发模型
-    help                     显示此帮助信息
+   管理相关:
+     add <filepath> <name>    添加配置文件到可用列表
+     rm <name>                删除配置文件
+     rename <name> <newname>  重命名配置文件
+     list                     列出所有配置文件
+     switch <name>            切换到指定配置文件
+     backup                   备份当前配置
+     template [edit|reset|diff] 查看/编辑/重置/比较模板
+     dcp-config [models...]   配置 DCP 触发模型
+     help                     显示此帮助信息
 
-  支持双模式（快速/详细）:
-    edit [--detail] <name>    编辑配置文件
-      - 快速模式: 交互式修改四类模型，自动生成
-      - 详细模式: 打开编辑器编辑完整 JSON
+   支持双模式（快速/详细）:
+     edit [--detail] <name>    编辑配置文件
+       - 快速模式: 交互式修改各分类模型，自动生成
+       - 详细模式: 打开编辑器编辑完整 JSON
 
-    create [--detail] <name>  创建新配置
-      - 快速模式: 指定四类模型自动生成
-      - 详细模式: 复制当前配置并打开编辑器
+     create [--detail] <name>  创建新配置
+       - 快速模式: 指定各分类模型自动生成
+       - 详细模式: 复制当前配置并打开编辑器
 
-    view [--detail] [name]    查看配置文件
-      - 快速模式: 按四类模型分组显示
-      - 详细模式: 显示完整 JSON
+     view [--detail] [name]    查看配置文件
+       - 快速模式: 按模板分组显示
+       - 详细模式: 显示完整 JSON
 
-    diff [--detail] <name1> [name2]  比较配置文件
-      - 快速模式: 比较四类模型差异
-      - 详细模式: 系统 diff 命令
+     diff [--detail] <name1> [name2]  比较配置文件
+       - 快速模式: 比较各分类模型差异
+       - 详细模式: 系统 diff 命令
 
-快速模式的四类模型:
-  强模型（Pro）      → sisyphus, oracle, metis, prometheus, momus, ultrabrain, hephaestus
-  中模型（Standard） → sisyphus-junior, atlas, deep, artistry, unspecified-high, visual-engineering
-  弱模型（Flash）    → explore, librarian, quick, unspecified-low, writing
-  多模态模型         → multimodal-looker
+快速模式的模型分类:
+   主模型            → sisyphus, hephaestus, prometheus, atlas
+   强模型（Pro）      → oracle, metis, momus, plan, ultrabrain
+   中模型（Standard） → sisyphus-junior, deep, artistry, unspecified-high, visual-engineering
+   弱模型（Flash）    → explore, librarian, quick, unspecified-low, writing
+   多模态模型         → multimodal-looker
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
 
