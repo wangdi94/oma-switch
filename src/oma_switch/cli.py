@@ -974,11 +974,11 @@ def cmd_switch(args: List[str]) -> None:
 
     if check_template_profile(profile):
         _, current_models = get_template_summary(profile)
-        strong_model, _ = current_models.get("强模型", ("", None))
+        main_model, _ = current_models.get("主模型", ("", None))
         dcp_trigger_models = config.get("dcp_trigger_models", [])
 
         if dcp_trigger_models:
-            should_enable_dcp = strong_model in dcp_trigger_models
+            should_enable_dcp = main_model in dcp_trigger_models
             update_dcp_state(should_enable_dcp)
 
 
