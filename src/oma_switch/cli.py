@@ -77,7 +77,6 @@ def get_dcp_config() -> Dict[str, Any]:
     try:
         with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
-            import re
             content = re.sub(r'//.*?\n', '\n', content)
             content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
             return json.loads(content)
@@ -94,7 +93,6 @@ def save_dcp_config(config: Dict[str, Any]) -> None:
 
 def update_dcp_state(enable: bool) -> None:
     """更新 DCP 插件状态（仅修改 enabled 字段，保留其他配置）"""
-    import re
     state = "启用" if enable else "禁用"
     value = "true" if enable else "false"
 
@@ -132,6 +130,25 @@ def update_dcp_state(enable: bool) -> None:
         print_error("无法更新 DCP 配置：文件格式异常")
 
     print_info(f"DCP 插件已{state}")
+
+
+def _get_profile_dcp_enabled(profile_meta: Dict[str, Any]) -> bool:
+    """获取配置文件的 DCP 绑定状态，默认启用"""
+    return profile_meta.get("dcp_enabled", True)
+
+
+def _set_profile_dcp_enabled(config: Dict[str, Any], name: str, enabled: bool) -> None:
+    """设置配置文件的 DCP 绑定状态并保存"""
+    if name in config.get("profiles", {}):
+        config["profiles"][name]["dcp_enabled"] = enabled
+        save_config(config)
+
+
+def _apply_profile_dcp(config: Dict[str, Any], name: str) -> None:
+    """切换配置时应用 DCP 状态"""
+    profile_meta = config.get("profiles", {}).get(name, {})
+    dcp_enabled = _get_profile_dcp_enabled(profile_meta)
+    update_dcp_state(dcp_enabled)
 
 
 def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
@@ -591,7 +608,8 @@ def cmd_add(args: List[str]) -> None:
     shutil.copy2(filepath, get_profile_path(name))
     config["profiles"][name] = {
         "created": datetime.now().isoformat(),
-        "description": ""
+        "description": "",
+        "dcp_enabled": True,
     }
     save_config(config)
 
@@ -776,7 +794,8 @@ def cmd_create(args: List[str]) -> None:
             if is_valid_json(profile_path):
                 config["profiles"][name] = {
                     "created": datetime.now().isoformat(),
-                    "description": ""
+                    "description": "",
+                    "dcp_enabled": True,
                 }
                 save_config(config)
                 print_success(f"已创建配置文件 '{name}'")
@@ -813,7 +832,8 @@ def cmd_create(args: List[str]) -> None:
 
     config["profiles"][name] = {
         "created": datetime.now().isoformat(),
-        "description": ""
+        "description": "",
+        "dcp_enabled": True,
     }
     save_config(config)
 
@@ -857,6 +877,12 @@ def cmd_view(args: List[str]) -> None:
     if not has_detail and check_template_profile(profile):
         summary, current_models = get_template_summary(profile)
         print_type_summary(summary, f"配置文件 '{name}' (快速模式):", current_models)
+        oma_config = load_config()
+        profile_meta = oma_config.get("profiles", {}).get(name, {})
+        dcp_enabled = _get_profile_dcp_enabled(profile_meta)
+        dcp_str = f"{Colors.GREEN}✓ 启用{Colors.NC}" if dcp_enabled else f"{Colors.RED}✗ 禁用{Colors.NC}"
+        print(f"  {Colors.BOLD}DCP{Colors.NC}:           {dcp_str}")
+        print()
         return
 
     if not has_detail and not check_template_profile(profile):
@@ -918,21 +944,25 @@ def cmd_list(args: List[str]) -> None:
         marker = " *" if is_current else ""
         color = Colors.GREEN if is_current else Colors.NC
 
+        profile_meta = config["profiles"].get(name, {})
+        dcp_enabled = _get_profile_dcp_enabled(profile_meta)
+        dcp_icon = f"{Colors.GREEN}DCP{Colors.NC}" if dcp_enabled else f"{Colors.RED}dcp{Colors.NC}"
+
         profile_path = get_profile_path(name)
         if not profile_path.exists():
-            print(f"{color}  {name}{marker} (文件丢失){Colors.NC}")
+            print(f"{color}  [{dcp_icon}] {name}{marker} (文件丢失){Colors.NC}")
             continue
 
         profile = load_profile_json(name)
         if profile and check_template_profile(profile):
             summary, current_models = get_template_summary(profile)
-            print(f"{color}  {name}{marker}{Colors.NC}")
+            print(f"{color}  [{dcp_icon}] {name}{marker}{Colors.NC}")
             for type_label in load_template():
                 model, variant = current_models.get(type_label, ("—", None))
                 variant_str = f' [variant={variant}]' if variant else ''
                 print(f"     {type_label}: {Colors.CYAN}{model}{Colors.NC}{variant_str}")
         else:
-            print(f"{color}  {name}{marker}{Colors.NC}")
+            print(f"{color}  [{dcp_icon}] {name}{marker}{Colors.NC}")
 
     print("-" * 80)
     print_info("* 表示当前使用的配置文件")
@@ -970,16 +1000,8 @@ def cmd_switch(args: List[str]) -> None:
     config["profiles"][name]["last_used"] = datetime.now().isoformat()
     save_config(config)
 
+    _apply_profile_dcp(config, name)
     print_success(f"已切换到配置文件 '{name}'")
-
-    if check_template_profile(profile):
-        _, current_models = get_template_summary(profile)
-        main_model, _ = current_models.get("主模型", ("", None))
-        dcp_trigger_models = config.get("dcp_trigger_models", [])
-
-        if dcp_trigger_models:
-            should_enable_dcp = main_model in dcp_trigger_models
-            update_dcp_state(should_enable_dcp)
 
 
 def cmd_diff(args: List[str]) -> None:
@@ -1116,7 +1138,8 @@ def cmd_backup(args: List[str]) -> None:
     config = load_config()
     config["profiles"][backup_name] = {
         "created": datetime.now().isoformat(),
-        "description": f"自动备份于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        "description": f"自动备份于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "dcp_enabled": True,
     }
     save_config(config)
 
@@ -1124,26 +1147,336 @@ def cmd_backup(args: List[str]) -> None:
 
 
 def cmd_dcp_config(args: List[str]) -> None:
-    """配置 DCP 插件的触发模型"""
-    config = load_config()
-    dcp_trigger_models = config.get("dcp_trigger_models", [])
+    """配置 DCP 插件（已废弃，请使用 'oma-switch dcp bind'）"""
+    print_warning("'dcp-config' 命令已废弃，请使用 'oma-switch dcp bind'")
+    print_info("示例:")
+    print_info("  oma-switch dcp bind <name> on     # 启用配置的 DCP")
+    print_info("  oma-switch dcp bind <name> off    # 禁用配置的 DCP")
+    print_info("  oma-switch dcp bind               # 查看当前配置的 DCP 绑定")
+    print_info("  oma-switch dcp on                 # 启用 DCP（同步到当前配置）")
 
-    if not args:
-        if not dcp_trigger_models:
-            print_info("DCP 触发模型未配置")
-            print_info("使用 'oma-switch dcp-config <model1> <model2> ...' 设置触发模型")
-        else:
-            print_info("DCP 触发模型:")
-            for model in dcp_trigger_models:
-                print(f"  - {Colors.CYAN}{model}{Colors.NC}")
+
+# ── 完整 DCP 管理命令 ─────────────────────────────────────────────
+
+
+def _dcp_show() -> None:
+    """显示 DCP 完整配置（格式化）"""
+    config = get_dcp_config()
+
+    print_info("当前 DCP (Dynamic Context Pruning) 配置:")
+    print()
+
+    enabled_str = (
+        f"{Colors.GREEN}✓ 已启用{Colors.NC}"
+        if config.get("enabled", False)
+        else f"{Colors.RED}✗ 已禁用{Colors.NC}"
+    )
+    print(f"  状态:          {enabled_str}")
+    print(f"  Debug:         {config.get('debug', False)}")
+    print(f"  修剪通知:      {config.get('pruneNotification', 'detailed')}")
+    print(f"  通知类型:      {config.get('pruneNotificationType', 'toast')}")
+    print()
+
+    compress = config.get("compress", {})
+    print_color(Colors.BOLD, "  压缩设置:")
+    print(f"    最大上下文:   {compress.get('maxContextLimit', '30%')}")
+    print(f"    最小上下文:   {compress.get('minContextLimit', '15%')}")
+    print()
+
+    tp = config.get("turnProtection", {})
+    print_color(Colors.BOLD, "  轮次保护:")
+    tp_en = (
+        f"{Colors.GREEN}✓ 开启{Colors.NC}"
+        if tp.get("enabled", False)
+        else f"{Colors.RED}✗ 关闭{Colors.NC}"
+    )
+    print(f"    状态:         {tp_en}")
+    print(f"    轮次:         {tp.get('turns', 4)}")
+    print()
+
+    strategies = config.get("strategies", {})
+    print_color(Colors.BOLD, "  策略:")
+
+    dedup = strategies.get("deduplication", {})
+    dedup_en = (
+        f"{Colors.GREEN}✓ 开启{Colors.NC}"
+        if dedup.get("enabled", True)
+        else f"{Colors.RED}✗ 关闭{Colors.NC}"
+    )
+    print(f"    去重:         {dedup_en}")
+
+    purge = strategies.get("purgeErrors", {})
+    purge_en = (
+        f"{Colors.GREEN}✓ 开启{Colors.NC}"
+        if purge.get("enabled", True)
+        else f"{Colors.RED}✗ 关闭{Colors.NC}"
+    )
+    print(f"    错误清理:     {purge_en}  (轮次: {purge.get('turns', 4)})")
+    print()
+
+    oma_config = load_config()
+    current_profile = oma_config.get("current")
+    if current_profile:
+        profile_meta = oma_config.get("profiles", {}).get(current_profile, {})
+        dcp_enabled = _get_profile_dcp_enabled(profile_meta)
+        bind_str = (
+            f"{Colors.GREEN}✓ 绑定启用{Colors.NC}"
+            if dcp_enabled
+            else f"{Colors.RED}✗ 绑定禁用{Colors.NC}"
+        )
+        print(f"  配置绑定:      {bind_str}  ({current_profile})")
+    print()
+
+    print_dim(f"DCP 配置文件: {DCP_CONFIG_FILE}")
+    print_dim(f"提示: 使用 'oma-switch dcp edit' 交互式修改，或 'oma-switch dcp set <key> <value>' 快速修改")
+
+
+def _dcp_edit() -> None:
+    """交互式编辑 DCP 完整配置"""
+    config = get_dcp_config()
+
+    print_info("DCP 配置编辑 (留空保持当前值)")
+    print()
+
+    current = config.get("enabled", False)
+    choice = input(f"  启用 DCP [true/false] (当前: {current}): ").strip().lower()
+    if choice in ("true", "false"):
+        config["enabled"] = choice == "true"
+
+    current = config.get("debug", False)
+    choice = input(f"  Debug 模式 [true/false] (当前: {current}): ").strip().lower()
+    if choice in ("true", "false"):
+        config["debug"] = choice == "true"
+
+    current = config.get("pruneNotification", "detailed")
+    choice = input(f"  修剪通知方式 [detailed/minimal/none] (当前: {current}): ").strip().lower()
+    if choice in ("detailed", "minimal", "none"):
+        config["pruneNotification"] = choice
+
+    current = config.get("pruneNotificationType", "toast")
+    choice = input(f"  通知类型 [toast/status/none] (当前: {current}): ").strip().lower()
+    if choice in ("toast", "status", "none"):
+        config["pruneNotificationType"] = choice
+
+    compress = config.setdefault("compress", {})
+    current = compress.get("maxContextLimit", "30%")
+    choice = input(f"  最大上下文限制 (当前: {current}): ").strip()
+    if choice:
+        compress["maxContextLimit"] = choice
+
+    current = compress.get("minContextLimit", "15%")
+    choice = input(f"  最小上下文限制 (当前: {current}): ").strip()
+    if choice:
+        compress["minContextLimit"] = choice
+
+    tp = config.setdefault("turnProtection", {})
+    current = tp.get("enabled", False)
+    choice = input(f"  轮次保护 [true/false] (当前: {current}): ").strip().lower()
+    if choice in ("true", "false"):
+        tp["enabled"] = choice == "true"
+
+    current = tp.get("turns", 4)
+    choice = input(f"  轮次保护轮次数 (当前: {current}): ").strip()
+    if choice:
+        try:
+            tp["turns"] = int(choice)
+        except ValueError:
+            print_warning(f"无效数字: {choice}，保持原值 {current}")
+
+    strategies = config.setdefault("strategies", {})
+    dedup = strategies.setdefault("deduplication", {})
+    current = dedup.get("enabled", True)
+    choice = input(f"  去重策略 [true/false] (当前: {current}): ").strip().lower()
+    if choice in ("true", "false"):
+        dedup["enabled"] = choice == "true"
+
+    purge = strategies.setdefault("purgeErrors", {})
+    current = purge.get("enabled", True)
+    choice = input(f"  错误清理策略 [true/false] (当前: {current}): ").strip().lower()
+    if choice in ("true", "false"):
+        purge["enabled"] = choice == "true"
+
+    current = purge.get("turns", 4)
+    choice = input(f"  错误清理轮次 (当前: {current}): ").strip()
+    if choice:
+        try:
+            purge["turns"] = int(choice)
+        except ValueError:
+            print_warning(f"无效数字: {choice}，保持原值 {current}")
+
+    save_dcp_config(config)
+    print()
+    print_success("DCP 配置已更新")
+    print_info("使用 'oma-switch dcp' 查看更新后的配置")
+
+
+def _dcp_set(args: List[str]) -> None:
+    """快速设置 DCP 参数: oma-switch dcp set <key> <value>"""
+    if len(args) < 2:
+        print_error("用法: oma-switch dcp set <key> <value>")
+        print_info("示例:")
+        print_info("  oma-switch dcp set enabled true")
+        print_info("  oma-switch dcp set compress.maxContextLimit 40%")
+        print_info("  oma-switch dcp set turnProtection.enabled true")
+        print_info("  oma-switch dcp set strategies.purgeErrors.turns 8")
         return
 
-    config["dcp_trigger_models"] = args
-    save_config(config)
+    key_path = args[0]
+    value_raw = " ".join(args[1:])
+    config = get_dcp_config()
 
-    print_success(f"DCP 触发模型已更新:")
-    for model in args:
-        print(f"  - {Colors.CYAN}{model}{Colors.NC}")
+    keys = key_path.split(".")
+    parent = config
+    for k in keys[:-1]:
+        if k not in parent or not isinstance(parent[k], dict):
+            parent[k] = {}
+        parent = parent[k]
+
+    last_key = keys[-1]
+
+    if value_raw.lower() in ("true", "false"):
+        parsed_value = value_raw.lower() == "true"
+    else:
+        try:
+            if "." in value_raw:
+                parsed_value = float(value_raw)
+            else:
+                parsed_value = int(value_raw)
+        except ValueError:
+            parsed_value = value_raw
+
+    parent[last_key] = parsed_value
+    save_dcp_config(config)
+    print_success(
+        f"已设置 DCP 参数: {key_path} = {json.dumps(parsed_value, ensure_ascii=False)}"
+    )
+
+
+def _dcp_bind_show(name: Optional[str] = None) -> None:
+    """显示一个配置文件的 DCP 绑定状态"""
+    oma_config = load_config()
+    if not name:
+        name = oma_config.get("current")
+        if not name:
+            print_error("当前没有激活的配置文件")
+            return
+
+    if name not in oma_config.get("profiles", {}):
+        print_error(f"配置文件 '{name}' 不存在")
+        return
+
+    profile_meta = oma_config["profiles"][name]
+    dcp_enabled = _get_profile_dcp_enabled(profile_meta)
+    bind_str = (
+        f"{Colors.GREEN}✓ 启用{Colors.NC}"
+        if dcp_enabled
+        else f"{Colors.RED}✗ 禁用{Colors.NC}"
+    )
+    print_info(f"配置文件 '{name}' 的 DCP 绑定: {bind_str}")
+
+
+def _dcp_bind_set(name: str, enabled: bool) -> None:
+    """设置一个配置文件的 DCP 绑定状态"""
+    oma_config = load_config()
+    if name not in oma_config.get("profiles", {}):
+        print_error(f"配置文件 '{name}' 不存在")
+        return
+
+    _set_profile_dcp_enabled(oma_config, name, enabled)
+    state = "启用" if enabled else "禁用"
+    print_success(f"配置文件 '{name}' 的 DCP 已{state}")
+
+    # 如果是当前配置，立即应用
+    if oma_config.get("current") == name:
+        update_dcp_state(enabled)
+
+
+def cmd_dcp(args: List[str]) -> None:
+    """DCP (Dynamic Context Pruning) 插件全面管理命令"""
+    if not args:
+        _dcp_show()
+        return
+
+    if args[0] in ("help", "--help", "-h"):
+        print_info("DCP (Dynamic Context Pruning) 插件管理")
+        print()
+        print_color(Colors.BOLD, "说明:")
+        print("  每个配置文件独立绑定 DCP 开关，切换配置时自动应用。")
+        print("  新建的配置文件默认启用 DCP。")
+        print()
+        print_color(Colors.BOLD, "用法:")
+        print("  oma-switch dcp [help]                 查看此帮助信息")
+        print("  oma-switch dcp show                   显示完整 DCP 配置")
+        print("  oma-switch dcp on|enable              立即启用 DCP（更新当前配置绑定）")
+        print("  oma-switch dcp off|disable            立即禁用 DCP（更新当前配置绑定）")
+        print("  oma-switch dcp bind [name]            查看配置的 DCP 绑定")
+        print("  oma-switch dcp bind <name> on|off     设置配置的 DCP 绑定")
+        print("  oma-switch dcp edit                   交互式编辑 DCP 插件参数")
+        print("  oma-switch dcp set <key> <value>      快速设置 DCP 插件参数")
+        print()
+        print_color(Colors.BOLD, "dcp set 支持的键路径:")
+        print("  enabled                         启用/禁用")
+        print("  debug                           Debug 模式")
+        print("  pruneNotification               修剪通知方式 (detailed/minimal/none)")
+        print("  pruneNotificationType           通知类型 (toast/status/none)")
+        print("  compress.maxContextLimit         最大上下文限制 (如 30%)")
+        print("  compress.minContextLimit         最小上下文限制 (如 15%)")
+        print("  turnProtection.enabled           轮次保护开关")
+        print("  turnProtection.turns             轮次保护轮次")
+        print("  strategies.deduplication.enabled  去重策略开关")
+        print("  strategies.purgeErrors.enabled    错误清理策略开关")
+        print("  strategies.purgeErrors.turns      错误清理轮次")
+        print()
+        print_dim("示例:")
+        print_dim("  oma-switch dcp                              # 查看摘要")
+        print_dim("  oma-switch dcp show                         # 完整配置")
+        print_dim("  oma-switch dcp on                           # 启用（同步到当前配置）")
+        print_dim("  oma-switch dcp bind main                    # 查看 main 的 DCP 绑定")
+        print_dim("  oma-switch dcp bind main off                # 关闭 main 的 DCP")
+        print_dim("  oma-switch dcp edit                         # 交互式修改")
+        return
+
+    subcommand = args[0]
+    sub_args = args[1:]
+
+    if subcommand == "show":
+        _dcp_show()
+    elif subcommand in ("on", "enable"):
+        update_dcp_state(True)
+        oma_config = load_config()
+        current = oma_config.get("current")
+        if current:
+            _set_profile_dcp_enabled(oma_config, current, True)
+            print_dim(f"已同步到当前配置文件 '{current}' 的 DCP 绑定")
+    elif subcommand in ("off", "disable"):
+        update_dcp_state(False)
+        oma_config = load_config()
+        current = oma_config.get("current")
+        if current:
+            _set_profile_dcp_enabled(oma_config, current, False)
+            print_dim(f"已同步到当前配置文件 '{current}' 的 DCP 绑定")
+    elif subcommand == "bind":
+        if not sub_args:
+            _dcp_bind_show()
+        elif len(sub_args) == 1:
+            _dcp_bind_show(sub_args[0])
+        elif len(sub_args) == 2:
+            val = sub_args[1].lower()
+            if val in ("on", "enable", "true", "1"):
+                _dcp_bind_set(sub_args[0], True)
+            elif val in ("off", "disable", "false", "0"):
+                _dcp_bind_set(sub_args[0], False)
+            else:
+                print_error("用法: oma-switch dcp bind <name> on|off")
+        else:
+            print_error("用法: oma-switch dcp bind [name] [on|off]")
+    elif subcommand == "edit":
+        _dcp_edit()
+    elif subcommand == "set":
+        _dcp_set(sub_args)
+    else:
+        print_error(f"未知子命令: {subcommand}")
+        print_info("使用 'oma-switch dcp help' 查看帮助")
 
 
 def sync_profiles_after_template_change(old_template: Dict[str, set], new_template: Dict[str, set]) -> int:
@@ -1334,16 +1667,15 @@ OMA 配置文件切换工具 (v2.0)
    不满足时，view/diff 自动降级到详细模式，create 会询问是否进入详细模式。
 
 命令:
-   管理相关:
-     add <filepath> <name>    添加配置文件到可用列表
-     rm <name>                删除配置文件
-     rename <name> <newname>  重命名配置文件
-     list                     列出所有配置文件
-     switch <name>            切换到指定配置文件
-     backup                   备份当前配置
-     template [edit|reset|diff] 查看/编辑/重置/比较模板
-     dcp-config [models...]   配置 DCP 触发模型
-     help                     显示此帮助信息
+    管理相关:
+      add <filepath> <name>    添加配置文件到可用列表
+      rm <name>                删除配置文件
+      rename <name> <newname>  重命名配置文件
+      list                     列出所有配置文件
+      switch <name>            切换到指定配置文件
+      backup                   备份当前配置
+      template [edit|reset|diff] 查看/编辑/重置/比较模板
+      dcp [subcommand]         管理 DCP 插件（每个配置独立绑定）
 
    支持双模式（快速/详细）:
      edit [--detail] <name>    编辑配置文件
@@ -1371,10 +1703,15 @@ OMA 配置文件切换工具 (v2.0)
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
 
-DCP 插件配置:
-  dcp-config [model1] [model2] ...  配置 DCP 触发模型
-    不带参数: 查看当前配置的触发模型
-    带参数: 设置触发模型列表（切换时强模型匹配则启用 DCP）
+DCP 插件管理（每个配置独立绑定）:
+  dcp                                   查看 DCP 配置摘要
+  dcp show                              显示完整 DCP 配置
+  dcp on|off                            启用/禁用 DCP（同步到当前配置）
+  dcp bind [name]                       查看配置的 DCP 绑定
+  dcp bind <name> on|off                设置配置的 DCP 绑定
+  dcp edit                              交互式编辑 DCP 插件参数
+  dcp set <key> <value>                 快速设置 DCP 插件参数
+  dcp-config [models...]                已废弃（请使用 dcp bind）
 """
     print(help_text)
 
@@ -1404,6 +1741,7 @@ def main() -> None:
         "backup": cmd_backup,
         "template": cmd_template,
         "dcp-config": cmd_dcp_config,
+        "dcp": cmd_dcp,
         "help": cmd_help,
     }
 
