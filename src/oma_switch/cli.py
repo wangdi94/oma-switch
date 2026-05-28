@@ -526,6 +526,7 @@ def generate_profile_from_types(
     根据模板生成新 profile。
     model_map: {类型: (新模型名, variant)}
     按模板分组替换各角色的 model 和 variant。
+    如果模板中的条目在 profile 中不存在，则自动创建。
     """
     new_profile = copy.deepcopy(template)
     tpl = load_template()
@@ -534,13 +535,16 @@ def generate_profile_from_types(
         if model_info:
             new_model, variant = model_info
             for section, key in entries:
-                if section in new_profile and key in new_profile[section]:
-                    new_profile[section][key]["model"] = new_model
-                    if variant:
-                        new_profile[section][key]["variant"] = variant
-                    else:
-                        # 如果之前有 variant 但现在没有指定，移除它
-                        new_profile[section][key].pop("variant", None)
+                if section not in new_profile:
+                    new_profile[section] = {}
+                if key not in new_profile[section]:
+                    new_profile[section][key] = {}
+                
+                new_profile[section][key]["model"] = new_model
+                if variant:
+                    new_profile[section][key]["variant"] = variant
+                else:
+                    new_profile[section][key].pop("variant", None)
     return new_profile
 
 
