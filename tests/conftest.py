@@ -24,6 +24,7 @@ def isolated_config_dir(tmp_path, monkeypatch):
     import oma_switch.constants as constants
     import oma_switch.cli as cli
     import oma_switch.config_io as config_io_mod
+    import oma_switch.history as history_mod
     import oma_switch.version as version_mod
 
     fake_home = tmp_path / "home"
@@ -46,6 +47,7 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(constants, "CONFIG_FILE", fake_config_dir / "config.json")
     monkeypatch.setattr(constants, "TEMPLATE_FILE", fake_config_dir / "template.json")
     monkeypatch.setattr(constants, "HISTORY_FILE", fake_config_dir / "history.json")
+    monkeypatch.setattr(history_mod, "HISTORY_FILE", fake_config_dir / "history.json")
     monkeypatch.setattr(constants, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(constants, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(constants, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")

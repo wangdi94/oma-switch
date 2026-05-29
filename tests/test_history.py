@@ -11,13 +11,14 @@ from pathlib import Path
 
 # Import after isolated_config_dir monkeypatch is applied
 from oma_switch import cli
+from oma_switch import history as history_mod
 
 
 @pytest.fixture(autouse=True)
 def history_env(tmp_path, monkeypatch):
     """Set up isolated history file for each test."""
     history_path = tmp_path / "history.json"
-    monkeypatch.setattr(cli, "HISTORY_FILE", history_path)
+    monkeypatch.setattr(history_mod, "HISTORY_FILE", history_path)
     return history_path
 
 
