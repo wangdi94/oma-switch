@@ -48,8 +48,10 @@ def get_dcp_config() -> Dict[str, Any]:
     try:
         with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
-            content = re.sub(r'//.*?\n', '\n', content)
-            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            # Remove // comments but skip quoted strings (preserves URLs like http://...)
+            content = re.sub(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|//[^\n]*', r'\1', content)
+            # Remove /* */ block comments but skip quoted strings
+            content = re.sub(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|/\*.*?\*/', r'\1', content, flags=re.DOTALL)
             return json.loads(content)
     except (json.JSONDecodeError, IOError):
         return {"enabled": False}
