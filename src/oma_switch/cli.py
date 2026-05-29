@@ -23,6 +23,7 @@ PROFILES_DIR = CONFIG_DIR / "profiles"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 TEMPLATE_FILE = CONFIG_DIR / "template.json"
 OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
+FALLBACKS_DIR = CONFIG_DIR / "fallbacks"
 
 # DCP (Dynamic Context Pruning) 插件配置
 OPENCODE_DIR = Path.home() / ".config" / "opencode"
@@ -68,6 +69,7 @@ def print_dim(message: str) -> None:
 def ensure_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    FALLBACKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_dcp_config() -> Dict[str, Any]:
@@ -176,12 +178,57 @@ def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
         json.dump(current, f, indent=2, ensure_ascii=False)
 
 
+def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
+    """将 fallback_models 字段级注入到 OMA 配置中，保留所有现有字段。
+
+    与 merge_to_oma_config 不同，此函数不替换整个 agents/categories 节，
+    而是在每个条目中设置/移除 fallback_models 字段。
+
+    参数:
+        fallback_data: 分类 → {"fallback_models": [...]} 的映射
+    """
+    current: Dict[str, Any] = {}
+    if OMA_CONFIG.exists():
+        try:
+            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+                current = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            print_warning("OMA 配置文件损坏，将使用新配置")
+
+    template = load_template()
+    any_active = False
+
+    for category_label, cat_data in fallback_data.items():
+        chain = cat_data.get("fallback_models", [])
+        entries = template.get(category_label, set())
+
+        for section, key in entries:
+            if section not in current:
+                current[section] = {}
+            if key not in current[section]:
+                current[section][key] = {}
+
+            entry = current[section][key]
+            if chain:
+                entry["fallback_models"] = copy.deepcopy(chain)
+                any_active = True
+            else:
+                entry.pop("fallback_models", None)
+
+    current["model_fallback"] = any_active
+
+    with open(OMA_CONFIG, 'w', encoding='utf-8') as f:
+        json.dump(current, f, indent=2, ensure_ascii=False)
+
+
 def load_config() -> Dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {"current": None, "profiles": {}}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+            config.setdefault("current_fallback", "")
+            return config
     except json.JSONDecodeError:
         print_error("配置文件损坏，将重新创建")
         return {"current": None, "profiles": {}}
@@ -190,6 +237,26 @@ def load_config() -> Dict[str, Any]:
 def save_config(config: Dict[str, Any]) -> None:
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def get_current_fallback(config: Dict[str, Any]) -> str:
+    """获取当前回退链名称"""
+    return config.get("current_fallback", "")
+
+
+def set_current_fallback(config: Dict[str, Any], name: str) -> None:
+    """设置当前回退链名称并保存"""
+    config["current_fallback"] = name
+    save_config(config)
+
+
+def clear_current_fallback_if_deleted(config: Dict[str, Any], deleted_name: str) -> bool:
+    """如果当前回退链被删除则清空，返回是否清空"""
+    if config.get("current_fallback") == deleted_name:
+        config["current_fallback"] = ""
+        save_config(config)
+        return True
+    return False
 
 
 def get_profile_path(name: str) -> Path:
@@ -215,6 +282,41 @@ def load_profile_json(name: str) -> Optional[Dict[str, Any]]:
             return json.load(f)
     except json.JSONDecodeError:
         return None
+
+
+def get_fallback_path(name: str) -> Path:
+    return FALLBACKS_DIR / f"{name}.json"
+
+
+def load_fallback_json(name: str) -> Optional[Dict[str, Any]]:
+    path = get_fallback_path(name)
+    if not path.exists():
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return None
+
+
+def save_fallback_json(name: str, data: Dict[str, Any]) -> None:
+    FALLBACKS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(get_fallback_path(name), 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def list_fallback_names() -> List[str]:
+    if not FALLBACKS_DIR.exists():
+        return []
+    return sorted(p.stem for p in FALLBACKS_DIR.glob("*.json"))
+
+
+def delete_fallback_json(name: str) -> bool:
+    path = get_fallback_path(name)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
 
 
 def open_editor(filepath: Path) -> bool:
@@ -376,6 +478,53 @@ def check_template_profile(profile: dict, template: Optional[Dict[str, set]] = N
     return True
 
 
+def validate_fallback_config(data: dict) -> Tuple[bool, str]:
+    """
+    验证 fallback 配置的格式是否合法。
+
+    校验规则：
+    - 顶级键必须是模板分类标签（主模型/强模型/中模型/弱模型/多模态模型）
+    - 每个值必须包含 fallback_models 键
+    - fallback_models 必须是列表
+    - 列表中每个对象必须包含 model 键
+    - 每个链最多 5 个模型
+    - 链内不允许重复模型
+
+    返回:
+        (True, "") 验证通过
+        (False, error_message) 验证失败，附带错误描述
+    """
+    valid_categories = set(DEFAULT_TEMPLATE_GROUPS.keys())
+
+    for category, value in data.items():
+        if category not in valid_categories:
+            return False, f"unknown category: {category}"
+
+        if not isinstance(value, dict) or "fallback_models" not in value:
+            return False, f"missing fallback_models in category: {category}"
+
+        models = value["fallback_models"]
+        if not isinstance(models, list):
+            return False, f"fallback_models must be a list in category: {category}"
+
+        if len(models) > 5:
+            return False, f"too many models in category: {category}, max is 5"
+
+        seen: list = []
+        for item in models:
+            if isinstance(item, dict):
+                if "model" not in item:
+                    return False, f"object item missing 'model' key in category: {category}"
+                model_str = str(item["model"])
+            else:
+                model_str = str(item)
+            if model_str in seen:
+                return False, f"duplicate model in category: {category}"
+            seen.append(model_str)
+
+    return True, ""
+
+
 def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
     """
     按模板分组获取摘要。
@@ -433,6 +582,66 @@ def print_type_summary(summary: Dict, title: str = None, current_models: Dict = 
             for p in parts:
                 print(f"      {p}")
         print()
+
+
+def _format_fallback_item(item: Any) -> str:
+    """格式化 fallback 链中的单个条目。
+    
+    字符串条目直接返回；字典条目格式化为 'model [variant=xxx]'。
+    """
+    if isinstance(item, dict):
+        model = item.get("model", "")
+        variant = item.get("variant")
+        if variant:
+            return f"{model} [variant={variant}]"
+        return str(model)
+    return str(item)
+
+
+def get_fallback_summary(fallback_data: Dict) -> Dict[str, List[str]]:
+    """
+    从 fallback 配置中提取每类的显示链。
+    
+    参数:
+        fallback_data: fallback 配置字典，格式如:
+            {"主模型": {"fallback_models": ["model-a", ...]}, ...}
+    
+    返回:
+        {category_label: [model_strings]}
+        每个 model_string 已格式化（字典条目显示为 model [variant=xxx]）
+    """
+    summary: Dict[str, List[str]] = {}
+    for category, value in fallback_data.items():
+        models = value.get("fallback_models", []) if isinstance(value, dict) else []
+        summary[category] = [_format_fallback_item(item) for item in models]
+    return summary
+
+
+def print_fallback_summary(summary: Dict[str, List[str]], title: str = None) -> None:
+    """打印格式化的 fallback 链摘要。
+    
+    显示格式:
+        主模型:
+          fallback: model-a → model-b → model-c
+        强模型:
+          fallback: (none)
+    """
+    if title:
+        print_info(title)
+        print()
+
+    template = load_template()
+    for category in template:
+        if category not in summary:
+            continue
+        chain = summary[category]
+        print(f"  {Colors.BOLD}{category}{Colors.NC}:")
+        if chain:
+            chain_str = f" → ".join(chain)
+            print(f"    fallback: {Colors.CYAN}{chain_str}{Colors.NC}")
+        else:
+            print(f"    fallback: {Colors.GRAY}(none){Colors.NC}")
+    print()
 
 
 def collect_all_models() -> List[str]:
@@ -518,6 +727,77 @@ def prompt_select_model(
     return parse_model_with_variant(choice)
 
 
+MAX_FALLBACK_MODELS = 5
+
+
+def prompt_select_fallback_models(
+    type_label: str,
+    all_models: List[str],
+    current: Optional[List] = None,
+) -> List:
+    """交互式提示用户选择 fallback 模型链，返回选中的模型列表。
+
+    current 可以是字符串列表或包含 variant 的字典列表（向后兼容）。
+    用户可以通过逗号分隔的编号或模型名选择多个模型，支持 model[variant] 格式。
+    空输入会清空链（返回 []）。最多选择 MAX_FALLBACK_MODELS 个模型。
+    """
+    if current is None:
+        current = []
+
+    print(f"  {Colors.BOLD}{type_label} Fallback 链{Colors.NC}")
+    if current:
+        display_items = []
+        for item in current:
+            if isinstance(item, dict):
+                m = item.get("model", "")
+                v = item.get("variant")
+                display_items.append(f"{m}[{v}]" if v else m)
+            else:
+                display_items.append(str(item))
+        print(f"    当前: {Colors.CYAN}{', '.join(display_items)}{Colors.NC}")
+    else:
+        print(f"    当前: {Colors.GRAY}(空){Colors.NC}")
+
+    print(f"    可用模型（最多选 {MAX_FALLBACK_MODELS} 个）:")
+    for i, m in enumerate(all_models, 1):
+        print(f"      [{i}] {m}")
+
+    prompt_text = (
+        f"  请输入{type_label} fallback 模型"
+        f"（逗号分隔的编号/模型名[variant]，留空=清空）: "
+    )
+    choice = input(prompt_text).strip()
+
+    if not choice:
+        return []
+
+    parts = [p.strip() for p in choice.split(",") if p.strip()]
+    selected: List = []
+
+    for part in parts:
+        if part.isdigit():
+            idx = int(part) - 1
+            if 0 <= idx < len(all_models):
+                selected.append(all_models[idx])
+            else:
+                print_warning(f"无效编号: {part}，已跳过")
+        else:
+            model, variant = parse_model_with_variant(part)
+            if variant:
+                selected.append({"model": model, "variant": variant})
+            else:
+                selected.append(model)
+
+    if len(selected) > MAX_FALLBACK_MODELS:
+        print_warning(
+            f"最多只能选择 {MAX_FALLBACK_MODELS} 个 fallback 模型，"
+            f"已截取前 {MAX_FALLBACK_MODELS} 个"
+        )
+        selected = selected[:MAX_FALLBACK_MODELS]
+
+    return selected
+
+
 def generate_profile_from_types(
     template: dict,
     model_map: Dict[str, Tuple[str, Optional[str]]]
@@ -546,6 +826,23 @@ def generate_profile_from_types(
                 else:
                     new_profile[section][key].pop("variant", None)
     return new_profile
+
+
+def generate_fallback_from_types(
+    fallback_choices: Dict[str, List]
+) -> Dict[str, Any]:
+    """
+    根据用户选择的 fallback 模型列表生成完整的 fallback 配置字典。
+    fallback_choices: {类型标签: [模型名或{model, variant}字典, ...]}
+    按模板结构输出: {类型标签: {"fallback_models": [...]}}
+    未指定的类型默认为 {"fallback_models": []}。
+    """
+    tpl = load_template()
+    result: Dict[str, Any] = {}
+    for type_label in tpl:
+        chain = fallback_choices.get(type_label, [])
+        result[type_label] = {"fallback_models": list(chain)}
+    return result
 
 
 def parse_flag(args: List[str], flag: str = "--detail") -> Tuple[bool, List[str]]:
@@ -898,6 +1195,59 @@ def cmd_view(args: List[str]) -> None:
         print(f.read())
 
 
+def cmd_fallback_create(args: List[str]) -> None:
+    """
+    创建新的 fallback 配置。
+
+    用法: oma-switch fallback create <name>
+
+    流程:
+      1. 验证名称（非空、不重复）
+      2. 收集所有可用模型
+      3. 为每个模板分类交互式选择 fallback 链
+      4. 生成并验证配置
+      5. 保存并打印摘要
+    """
+    if not args:
+        print_error("用法: oma-switch fallback create <name>")
+        sys.exit(1)
+
+    name = args[0].strip()
+    if not name:
+        print_error("名称不能为空")
+        sys.exit(1)
+
+    existing = load_fallback_json(name)
+    if existing is not None:
+        print_error(f"Fallback 配置 '{name}' 已存在")
+        sys.exit(1)
+
+    print_info(f"正在创建 fallback 配置 '{name}'")
+    print()
+
+    all_models = collect_all_models()
+
+    tpl = load_template()
+    fallback_choices: Dict[str, List] = {}
+    for type_label in tpl:
+        selected = prompt_select_fallback_models(type_label, all_models)
+        fallback_choices[type_label] = selected
+
+    config = generate_fallback_from_types(fallback_choices)
+
+    ok, err = validate_fallback_config(config)
+    if not ok:
+        print_error(f"生成的 fallback 配置无效: {err}")
+        sys.exit(1)
+
+    save_fallback_json(name, config)
+
+    print()
+    print_success(f"已创建 fallback 配置 '{name}'")
+    summary = get_fallback_summary(config)
+    print_fallback_summary(summary, "Fallback 链摘要:")
+
+
 def cmd_rename(args: List[str]) -> None:
     """重命名配置文件"""
     if len(args) < 2:
@@ -930,6 +1280,14 @@ def cmd_rename(args: List[str]) -> None:
     print_success(f"已将配置文件 '{name}' 重命名为 '{newname}'")
 
 
+def _show_fallback_status(config: Dict[str, Any]) -> None:
+    fallback = get_current_fallback(config)
+    if fallback:
+        print_info(f"当前 Fallback: {Colors.GREEN}{fallback}{Colors.NC}")
+    else:
+        print_info("当前 Fallback: (未设置)")
+
+
 def cmd_list(args: List[str]) -> None:
     """列出所有配置文件"""
     config = load_config()
@@ -938,6 +1296,7 @@ def cmd_list(args: List[str]) -> None:
     if not config["profiles"]:
         print_warning("没有可用的配置文件")
         print_info("使用 'oma-switch create <name>' 创建新配置文件")
+        _show_fallback_status(config)
         return
 
     print_info("可用的配置文件:")
@@ -970,6 +1329,257 @@ def cmd_list(args: List[str]) -> None:
 
     print("-" * 80)
     print_info("* 表示当前使用的配置文件")
+    _show_fallback_status(config)
+
+
+def cmd_fallback_list(args: List[str]) -> None:
+    """列出所有 fallback 配置"""
+    names = list_fallback_names()
+
+    if not names:
+        print_warning("暂无 fallback 配置")
+        return
+
+    config = load_config()
+    current = get_current_fallback(config)
+
+    print_info("可用的 fallback 配置:")
+    print("-" * 80)
+
+    for name in names:
+        is_current = name == current
+        marker = " *" if is_current else ""
+        color = Colors.GREEN if is_current else Colors.NC
+
+        data = load_fallback_json(name)
+        if data is None:
+            print(f"{color}  {name}{marker} (文件损坏){Colors.NC}")
+            continue
+
+        summary = get_fallback_summary(data)
+        parts = []
+        for cat, chain in summary.items():
+            parts.append(f"{cat}({len(chain)})")
+        detail = "  ".join(parts)
+        print(f"{color}  {name}{marker}{Colors.NC}  {Colors.GRAY}{detail}{Colors.NC}")
+
+    print("-" * 80)
+    print_info("* 表示当前使用的 fallback 配置")
+
+
+def cmd_fallback_view(args: List[str]) -> None:
+    """
+    查看 fallback 配置。
+
+    用法: oma-switch fallback view [name]
+    默认查看当前激活的 fallback 配置。
+    """
+    config = load_config()
+
+    if args:
+        name = args[0]
+    else:
+        name = get_current_fallback(config)
+
+    if not name:
+        print_error("当前没有激活的 fallback 配置")
+        return
+
+    data = load_fallback_json(name)
+    if data is None:
+        print_error(f"fallback '{name}' 不存在")
+        return
+
+    summary = get_fallback_summary(data)
+    print_fallback_summary(summary, title=f"Fallback 配置 '{name}':")
+
+
+def cmd_fallback_edit(args: List[str]) -> None:
+    """
+    编辑现有 fallback 配置。
+
+    用法: oma-switch fallback edit <name>
+
+    流程:
+      1. 加载现有 fallback 配置
+      2. 显示当前摘要
+      3. 为每个模板分类交互式修改 fallback 链
+      4. 生成并验证新配置
+      5. 保存，若是当前 fallback 则重新注入 OMA 配置
+    """
+    if not args:
+        print_error("用法: oma-switch fallback edit <name>")
+        sys.exit(1)
+
+    name = args[0].strip()
+    if not name:
+        print_error("名称不能为空")
+        sys.exit(1)
+
+    existing = load_fallback_json(name)
+    if existing is None:
+        print_error(f"fallback '{name}' 不存在")
+        sys.exit(1)
+
+    print_info(f"正在编辑 fallback 配置 '{name}'")
+    print()
+
+    summary = get_fallback_summary(existing)
+    print_fallback_summary(summary, "当前 Fallback 链:")
+
+    all_models = collect_all_models()
+
+    tpl = load_template()
+    fallback_choices: Dict[str, List] = {}
+    for type_label in tpl:
+        current_chain = existing.get(type_label, {}).get("fallback_models", [])
+        selected = prompt_select_fallback_models(type_label, all_models, current_chain)
+        fallback_choices[type_label] = selected
+
+    new_config = generate_fallback_from_types(fallback_choices)
+
+    ok, err = validate_fallback_config(new_config)
+    if not ok:
+        print_error(f"生成的 fallback 配置无效: {err}")
+        sys.exit(1)
+
+    save_fallback_json(name, new_config)
+
+    config = load_config()
+    if get_current_fallback(config) == name:
+        merge_fallback_to_oma_config(new_config)
+        print_info("已同步到 OMA 配置文件")
+
+    print()
+    print_success(f"已更新 fallback 配置 '{name}'")
+    new_summary = get_fallback_summary(new_config)
+    print_fallback_summary(new_summary, "更新后 Fallback 链:")
+
+
+def cmd_fallback_diff(args: List[str]) -> None:
+    """
+    比较 fallback 配置差异。
+
+    用法: oma-switch fallback diff <name1> [name2]
+    如果只提供一个参数，将与当前 fallback 配置比较。
+    """
+    if not args:
+        print_error("用法: oma-switch fallback diff <name1> [name2]")
+        print_info("如果只提供一个参数，将与当前 fallback 配置比较")
+        return
+
+    config = load_config()
+    name1 = args[0]
+    name2 = args[1] if len(args) > 1 else get_current_fallback(config)
+
+    if not name2:
+        print_error("未指定第二个 fallback 配置且无当前 fallback 配置")
+        return
+
+    data1 = load_fallback_json(name1)
+    if data1 is None:
+        print_error(f"fallback '{name1}' 不存在")
+        return
+
+    data2 = load_fallback_json(name2)
+    if data2 is None:
+        print_error(f"fallback '{name2}' 不存在")
+        return
+
+    summary1 = get_fallback_summary(data1)
+    summary2 = get_fallback_summary(data2)
+
+    print_info(f"比较 '{name1}' 和 '{name2}':")
+    print()
+
+    for category in load_template():
+        chain1 = summary1.get(category, [])
+        chain2 = summary2.get(category, [])
+
+        if chain1 == chain2:
+            status = f"{Colors.GREEN}一致{Colors.NC}"
+            print(f"  {Colors.BOLD}{category}{Colors.NC}: {status}")
+        else:
+            status = f"{Colors.YELLOW}不同{Colors.NC}"
+            print(f"  {Colors.BOLD}{category}{Colors.NC}: {status}")
+            chain_str1 = " → ".join(chain1) if chain1 else "(空)"
+            chain_str2 = " → ".join(chain2) if chain2 else "(空)"
+            print(f"    {name1}: {Colors.CYAN}{chain_str1}{Colors.NC}")
+            print(f"    {name2}: {Colors.CYAN}{chain_str2}{Colors.NC}")
+
+    print()
+
+
+def cmd_fallback_switch(args: List[str]) -> None:
+    """
+    切换 fallback 配置。
+
+    用法: oma-switch fallback switch <name>
+
+    流程:
+      1. 验证 fallback 配置存在
+      2. 加载并验证配置格式
+      3. 注入 fallback_models 到 OMA 配置
+      4. 更新 config.json 中的 current_fallback
+      5. 打印成功消息
+    """
+    if not args:
+        print_error("用法: oma-switch fallback switch <name>")
+        sys.exit(1)
+
+    name = args[0].strip()
+    if not name:
+        print_error("名称不能为空")
+        sys.exit(1)
+
+    fallback_data = load_fallback_json(name)
+    if fallback_data is None:
+        print_error(f"Fallback 配置 '{name}' 不存在")
+        sys.exit(1)
+
+    ok, err = validate_fallback_config(fallback_data)
+    if not ok:
+        print_error(f"Fallback 配置 '{name}' 格式无效: {err}")
+        sys.exit(1)
+
+    merge_fallback_to_oma_config(fallback_data)
+
+    config = load_config()
+    set_current_fallback(config, name)
+
+    print_success(f"已切换到 fallback 配置 '{name}'")
+    summary = get_fallback_summary(fallback_data)
+    print_fallback_summary(summary, "当前 Fallback 链:")
+
+
+def cmd_fallback_rm(args: List[str]) -> None:
+    """删除 fallback 配置。用法: oma-switch fallback rm <name>"""
+    if not args:
+        print_error("用法: oma-switch fallback rm <name>")
+        sys.exit(1)
+
+    name = args[0].strip()
+    if not name:
+        print_error("名称不能为空")
+        sys.exit(1)
+
+    existing = load_fallback_json(name)
+    if existing is None:
+        print_error(f"Fallback 配置 '{name}' 不存在")
+        sys.exit(1)
+
+    response = input(f"确定要删除 fallback '{name}' 吗? (y/N): ").strip().lower()
+    if response != 'y':
+        print_info("已取消")
+        return
+
+    delete_fallback_json(name)
+
+    config = load_config()
+    if clear_current_fallback_if_deleted(config, name):
+        print_warning(f"Fallback '{name}' 是当前正在使用的配置，已自动取消激活")
+
+    print_success(f"已删除 fallback 配置 '{name}'")
 
 
 def cmd_switch(args: List[str]) -> None:
@@ -1005,6 +1615,14 @@ def cmd_switch(args: List[str]) -> None:
     save_config(config)
 
     _apply_profile_dcp(config, name)
+
+    # Re-inject current fallback if set (profile switch replaces agents/categories)
+    current_fallback = get_current_fallback(config)
+    if current_fallback:
+        fallback_data = load_fallback_json(current_fallback)
+        if fallback_data is not None:
+            merge_fallback_to_oma_config(fallback_data)
+
     print_success(f"已切换到配置文件 '{name}'")
 
 
@@ -1716,8 +2334,67 @@ DCP 插件管理（每个配置独立绑定）:
   dcp edit                              交互式编辑 DCP 插件参数
   dcp set <key> <value>                 快速设置 DCP 插件参数
   dcp-config [models...]                已废弃（请使用 dcp bind）
+
+Fallback 链管理:
+  fallback create <name>        创建新的 fallback 链
+  fallback list                 列出所有 fallback 链
+  fallback switch <name>        切换到指定 fallback 链
+  fallback view [name]          查看 fallback 链详情
+  fallback edit <name>          编辑 fallback 链
+  fallback diff <name1> [name2] 比较 fallback 链
+  fallback rm <name>            删除 fallback 链
 """
     print(help_text)
+
+
+def cmd_fallback(args: List[str]) -> None:
+    """Fallback 链管理命令"""
+    if not args:
+        _fallback_help()
+        return
+
+    if args[0] in ("help", "--help", "-h"):
+        _fallback_help()
+        return
+
+    subcommand = args[0]
+    sub_args = args[1:]
+
+    if subcommand == "create":
+        cmd_fallback_create(sub_args)
+    elif subcommand == "list":
+        cmd_fallback_list(sub_args)
+    elif subcommand == "switch":
+        cmd_fallback_switch(sub_args)
+    elif subcommand == "view":
+        cmd_fallback_view(sub_args)
+    elif subcommand == "edit":
+        cmd_fallback_edit(sub_args)
+    elif subcommand == "diff":
+        cmd_fallback_diff(sub_args)
+    elif subcommand == "rm":
+        cmd_fallback_rm(sub_args)
+    else:
+        print_error(f"未知子命令: {subcommand}")
+        print_info("使用 'oma-switch fallback help' 查看帮助")
+
+
+def _fallback_help() -> None:
+    """显示 fallback 帮助信息"""
+    print_info("Fallback 链管理")
+    print()
+    print_color(Colors.BOLD, "说明:")
+    print("  管理模型 fallback 链配置。切换时自动写入 oh-my-openagent.json 的 fallback_models 字段。")
+    print()
+    print_color(Colors.BOLD, "用法:")
+    print("  oma-switch fallback [help]                 查看此帮助信息")
+    print("  oma-switch fallback create <name>          创建新的 fallback 链")
+    print("  oma-switch fallback list                   列出所有 fallback 链")
+    print("  oma-switch fallback switch <name>          切换到指定 fallback 链")
+    print("  oma-switch fallback view [name]            查看 fallback 链详情")
+    print("  oma-switch fallback edit <name>            编辑 fallback 链")
+    print("  oma-switch fallback diff <name1> [name2]   比较 fallback 链")
+    print("  oma-switch fallback rm <name>              删除 fallback 链")
 
 
 def main() -> None:
@@ -1746,6 +2423,7 @@ def main() -> None:
         "template": cmd_template,
         "dcp-config": cmd_dcp_config,
         "dcp": cmd_dcp,
+        "fallback": cmd_fallback,
         "help": cmd_help,
     }
 
