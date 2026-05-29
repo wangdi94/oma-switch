@@ -9,6 +9,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from .types import OmaSwitchConfig, ProfileMeta
+
 from .constants import DCP_CONFIG_FILE, OPENCODE_DIR
 from .config_io import load_config, save_config
 from .display import (
@@ -100,19 +102,19 @@ def update_dcp_state(enable: bool) -> None:
     print_info(f"DCP 插件已{state}")
 
 
-def _get_profile_dcp_enabled(profile_meta: Dict[str, Any]) -> bool:
+def _get_profile_dcp_enabled(profile_meta: ProfileMeta) -> bool:
     """获取配置文件的 DCP 绑定状态，默认启用"""
-    return profile_meta.get("dcp_enabled", True)
+    return profile_meta.get("dcp_enabled", True)  # type: ignore[return-value]
 
 
-def _set_profile_dcp_enabled(config: Dict[str, Any], name: str, enabled: bool) -> None:
+def _set_profile_dcp_enabled(config: OmaSwitchConfig, name: str, enabled: bool) -> None:
     """设置配置文件的 DCP 绑定状态并保存"""
     if name in config.get("profiles", {}):
         config["profiles"][name]["dcp_enabled"] = enabled
         save_config(config)
 
 
-def _apply_profile_dcp(config: Dict[str, Any], name: str) -> None:
+def _apply_profile_dcp(config: OmaSwitchConfig, name: str) -> None:
     """切换配置时应用 DCP 状态"""
     profile_meta = config.get("profiles", {}).get(name, {})
     dcp_enabled = _get_profile_dcp_enabled(profile_meta)

@@ -10,6 +10,8 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .types import FallbackData
+
 from .constants import CONFIG_DIR, TEMPLATE_FILE
 from .display import (
     Colors,
@@ -165,7 +167,7 @@ def check_template_profile(profile: dict, template: Optional[Dict[str, set]] = N
     return True
 
 
-def validate_fallback_config(data: dict) -> Tuple[bool, str]:
+def validate_fallback_config(data: FallbackData) -> Tuple[bool, str]:
     """
     验证 fallback 配置的格式是否合法。
 
@@ -285,7 +287,7 @@ def _format_fallback_item(item: Any) -> str:
     return str(item)
 
 
-def get_fallback_summary(fallback_data: Dict) -> Dict[str, List[str]]:
+def get_fallback_summary(fallback_data: FallbackData) -> Dict[str, List[str]]:
     """
     从 fallback 配置中提取每类的显示链。
     

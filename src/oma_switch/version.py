@@ -10,7 +10,9 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
+
+from .types import VersionMetadata
 
 from .constants import CONFIG_DIR
 from .display import Colors, print_color, print_dim, print_error, print_info, print_success, print_warning
@@ -42,7 +44,7 @@ def _get_version_dir(filepath: Path) -> Path:
     return version_dir
 
 
-def _create_version_metadata(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> Dict[str, Any]:
+def _create_version_metadata(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> VersionMetadata:
     """创建版本元数据字典
 
     参数：
@@ -80,7 +82,7 @@ def _create_version_metadata(filepath: Path, operation: str, command_args: Optio
     }
 
 
-def _validate_version_metadata(metadata: Dict[str, Any]) -> bool:
+def _validate_version_metadata(metadata: VersionMetadata) -> bool:
     """验证版本元数据格式
 
     检查必需字段是否存在，timestamp 是否为 ISO 8601 格式，
@@ -126,7 +128,7 @@ def _validate_version_metadata(metadata: Dict[str, Any]) -> bool:
     return True
 
 
-def _load_version_metadata(version_path: Path) -> Optional[Dict[str, Any]]:
+def _load_version_metadata(version_path: Path) -> Optional[VersionMetadata]:
     """加载版本元数据文件
 
     参数：
@@ -144,10 +146,10 @@ def _load_version_metadata(version_path: Path) -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, IOError):
         return None
 
-    if not _validate_version_metadata(data):
+    if not _validate_version_metadata(data):  # type: ignore[arg-type]
         return None
 
-    return data
+    return cast(VersionMetadata, data)
 
 
 def _create_version_snapshot(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> None:
@@ -192,7 +194,7 @@ def _rotate_versions(filepath: Path, max_versions: int = 10) -> None:
         meta_file.unlink(missing_ok=True)
 
 
-def _list_versions(filepath: Path) -> List[Dict[str, Any]]:
+def _list_versions(filepath: Path) -> List[VersionMetadata]:
     """列出指定文件的所有版本，按时间戳降序排序"""
     version_dir = CONFIG_DIR / ".versions" / filepath.name
     if not version_dir.exists():
@@ -206,21 +208,21 @@ def _list_versions(filepath: Path) -> List[Dict[str, Any]]:
         if not p.name.endswith(".meta.json") and p.is_file()
     ]
 
-    versions: List[Dict[str, Any]] = []
+    versions: List[VersionMetadata] = []
     for vf in version_files:
         name_parts = vf.name.rsplit(".", 1)[0]
         timestamp = name_parts.replace(f"{stem}.", "", 1)
 
         meta_file = vf.with_suffix(".meta.json")
-        meta = _load_version_metadata(meta_file) or {}
+        meta = _load_version_metadata(meta_file)
 
         versions.append({
-            "timestamp": meta.get("timestamp", timestamp),
+            "timestamp": meta.get("timestamp", timestamp) if meta else timestamp,
             "file_path": str(vf),
-            "operation": meta.get("operation", ""),
-            "command_args": meta.get("command_args", []),
-            "file_size": meta.get("file_size", vf.stat().st_size if vf.exists() else 0),
-            "file_hash": meta.get("file_hash", ""),
+            "operation": meta.get("operation", "") if meta else "",
+            "command_args": meta.get("command_args", []) if meta else [],
+            "file_size": meta.get("file_size", vf.stat().st_size if vf.exists() else 0) if meta else (vf.stat().st_size if vf.exists() else 0),
+            "file_hash": meta.get("file_hash", "") if meta else "",
         })
 
     # 按时间戳降序排序（最新在前）

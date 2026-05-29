@@ -11,7 +11,9 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
+
+from .types import OmaSwitchConfig
 
 from .constants import OMA_CONFIG, PROFILES_DIR
 from .config_io import (
@@ -415,7 +417,7 @@ def cmd_rename(args: List[str]) -> None:
     print_success(f"已将配置文件 '{name}' 重命名为 '{newname}'")
 
 
-def _show_fallback_status(config: Dict[str, Any]) -> None:
+def _show_fallback_status(config: OmaSwitchConfig) -> None:
     fallback = get_current_fallback(config)
     if fallback:
         print_info(f"当前 Fallback: {Colors.GREEN}{fallback}{Colors.NC}")
@@ -510,7 +512,7 @@ def cmd_switch(args: List[str]) -> None:
     if current_fallback:
         fallback_data = load_fallback_json(current_fallback)
         if fallback_data is not None:
-            merge_fallback_to_oma_config(fallback_data)
+            merge_fallback_to_oma_config(cast(Dict[str, Any], fallback_data))
 
     print_success(f"已切换到配置文件 '{name}'")
 

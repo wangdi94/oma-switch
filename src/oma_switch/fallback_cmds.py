@@ -4,7 +4,7 @@ Fallback 链管理命令
 """
 
 import sys
-from typing import Dict, List, Any
+from typing import Dict, List, Any, cast
 
 from .display import print_error, print_info, print_warning, print_success, print_color, Colors
 from .config_io import (
@@ -173,8 +173,9 @@ def cmd_fallback_edit(args: List[str]) -> None:
 
     tpl = load_template()
     fallback_choices: Dict[str, List] = {}
+    existing_dict = cast(Dict[str, Any], existing)
     for type_label in tpl:
-        current_chain = existing.get(type_label, {}).get("fallback_models", [])
+        current_chain = existing_dict.get(type_label, {}).get("fallback_models", [])
         selected = prompt_select_fallback_models(type_label, all_models, current_chain)
         fallback_choices[type_label] = selected
 
@@ -189,7 +190,7 @@ def cmd_fallback_edit(args: List[str]) -> None:
 
     config = load_config()
     if get_current_fallback(config) == name:
-        merge_fallback_to_oma_config(new_config)
+        merge_fallback_to_oma_config(cast(Dict[str, Any], new_config))
         print_info("已同步到 OMA 配置文件")
 
     print()
@@ -284,7 +285,7 @@ def cmd_fallback_switch(args: List[str]) -> None:
         print_error(f"Fallback 配置 '{name}' 格式无效: {err}")
         sys.exit(1)
 
-    merge_fallback_to_oma_config(fallback_data)
+    merge_fallback_to_oma_config(cast(Dict[str, Any], fallback_data))
 
     config = load_config()
     set_current_fallback(config, name)

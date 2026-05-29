@@ -8,6 +8,8 @@ Contains interactive prompt functions and generation functions.
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 
+from .types import FallbackData
+
 from .display import Colors, print_warning
 from .history import get_category_frequency, get_model_frequency, record_model_usage
 from .models import collect_models_enriched, fuzzy_match_models
@@ -302,16 +304,17 @@ def generate_profile_from_types(
 
 def generate_fallback_from_types(
     fallback_choices: Dict[str, List],
-) -> Dict[str, Any]:
+) -> FallbackData:
     """
     根据用户选择的 fallback 模型列表生成完整的 fallback 配置字典。
     fallback_choices: {类型标签: [模型名或{model, variant}字典, ...]}
     按模板结构输出: {类型标签: {"fallback_models": [...]}}
     未指定的类型默认为 {"fallback_models": []}。
     """
+    from .types import FallbackCategory
     tpl = load_template()
-    result: Dict[str, Any] = {}
+    result: FallbackData = {}
     for type_label in tpl:
         chain = fallback_choices.get(type_label, [])
-        result[type_label] = {"fallback_models": list(chain)}
+        result[type_label] = {"fallback_models": list(chain)}  # type: ignore[literal-required]
     return result

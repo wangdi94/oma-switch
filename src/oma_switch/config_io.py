@@ -7,7 +7,9 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
+
+from .types import FallbackData, OmaSwitchConfig
 
 from .constants import CONFIG_FILE, FALLBACKS_DIR, PROFILES_DIR
 from .display import print_error, print_warning
@@ -15,16 +17,16 @@ from .io_utils import _atomic_write_json
 from .version import _create_version_snapshot, _recover_from_versions, _rotate_versions
 
 
-def _default_config() -> Dict[str, Any]:
+def _default_config() -> OmaSwitchConfig:
     return {"current": None, "profiles": {}, "current_fallback": ""}
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> OmaSwitchConfig:
     if not CONFIG_FILE.exists():
         return _default_config()
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+            config = cast(OmaSwitchConfig, json.load(f))
             config.setdefault("current_fallback", "")
             return config
     except json.JSONDecodeError:
@@ -39,29 +41,29 @@ def load_config() -> Dict[str, Any]:
         if recovered is not None:
             print_warning(f"已从版本历史恢复配置")
             recovered.setdefault("current_fallback", "")
-            return recovered
+            return cast(OmaSwitchConfig, recovered)
         print_error("无法从版本历史恢复配置，请手动恢复或重新创建")
         return _default_config()
 
 
-def save_config(config: Dict[str, Any]) -> None:
+def save_config(config: OmaSwitchConfig) -> None:
     _create_version_snapshot(CONFIG_FILE, "save_config")
-    _atomic_write_json(CONFIG_FILE, config)
+    _atomic_write_json(CONFIG_FILE, cast(Dict[str, Any], config))
     _rotate_versions(CONFIG_FILE)
 
 
-def get_current_fallback(config: Dict[str, Any]) -> str:
+def get_current_fallback(config: OmaSwitchConfig) -> str:
     """获取当前回退链名称"""
     return config.get("current_fallback", "")
 
 
-def set_current_fallback(config: Dict[str, Any], name: str) -> None:
+def set_current_fallback(config: OmaSwitchConfig, name: str) -> None:
     """设置当前回退链名称并保存"""
     config["current_fallback"] = name
     save_config(config)
 
 
-def clear_current_fallback_if_deleted(config: Dict[str, Any], deleted_name: str) -> bool:
+def clear_current_fallback_if_deleted(config: OmaSwitchConfig, deleted_name: str) -> bool:
     """如果当前回退链被删除则清空，返回是否清空"""
     if config.get("current_fallback") == deleted_name:
         config["current_fallback"] = ""
@@ -111,13 +113,13 @@ def get_fallback_path(name: str) -> Path:
     return FALLBACKS_DIR / f"{name}.json"
 
 
-def load_fallback_json(name: str) -> Optional[Dict[str, Any]]:
+def load_fallback_json(name: str) -> Optional[FallbackData]:
     path = get_fallback_path(name)
     if not path.exists():
         return None
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            return cast(FallbackData, json.load(f))
     except json.JSONDecodeError:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         corrupted_path = path.with_suffix(f".json.corrupted.{ts}")
@@ -129,15 +131,15 @@ def load_fallback_json(name: str) -> Optional[Dict[str, Any]]:
         recovered = _recover_from_versions(path)
         if recovered is not None:
             print_warning(f"已从版本历史恢复 Fallback 配置 [{name}]")
-            return recovered
+            return cast(FallbackData, recovered)
         print_error(f"无法从版本历史恢复 Fallback 配置 [{name}]，请手动恢复")
         return None
 
 
-def save_fallback_json(name: str, data: Dict[str, Any]) -> None:
+def save_fallback_json(name: str, data: FallbackData) -> None:
     FALLBACKS_DIR.mkdir(parents=True, exist_ok=True)
     _create_version_snapshot(get_fallback_path(name), "save_fallback_json")
-    _atomic_write_json(get_fallback_path(name), data)
+    _atomic_write_json(get_fallback_path(name), cast(Dict[str, Any], data))
     _rotate_versions(get_fallback_path(name))
 
 
