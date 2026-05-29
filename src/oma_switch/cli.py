@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """OMA 配置文件切换工具 - 管理 opencode 的 oh-my-openagent.json 配置"""
+from .__init__ import __version__
 from .constants import *  # noqa: F403
 from .display import *  # noqa: F403,E402
 from .io_utils import _atomic_write_json  # noqa: F401
@@ -17,8 +18,8 @@ from .fallback_cmds import *  # noqa: F403
 
 def cmd_help() -> None:
     """显示帮助信息"""
-    print("""
-OMA 配置文件切换工具 (v2.0)
+    print(f"""
+OMA 配置文件切换工具 (v{__version__})
 
 用法: oma-switch <command> [args...] [--detail]
 
