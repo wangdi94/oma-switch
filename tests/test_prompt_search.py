@@ -220,3 +220,116 @@ class TestCollectAllModelsUpdated:
         # Should have printed warning
         captured = capsys.readouterr()
         assert "⚠" in captured.out
+
+
+# ---------- parse_model_vendor_name ----------
+
+
+class TestParseModelVendorName:
+    def test_parse_model_vendor_name_normal(self):
+        """Normal vendor/model parsing."""
+        vendor, name = cli.parse_model_vendor_name("openai/gpt-4o")
+        assert vendor == "openai"
+        assert name == "gpt-4o"
+
+    def test_parse_model_vendor_name_with_variant(self):
+        """vendor/model[variant] strips variant."""
+        vendor, name = cli.parse_model_vendor_name("xiaomi-token-plan-sgp/deepseek-v4-pro[max]")
+        assert vendor == "xiaomi-token-plan-sgp"
+        assert name == "deepseek-v4-pro"
+
+    def test_parse_model_vendor_name_no_slash(self):
+        """No slash → empty vendor, whole string as model name."""
+        vendor, name = cli.parse_model_vendor_name("gpt-4o")
+        assert vendor == ""
+        assert name == "gpt-4o"
+
+
+# ---------- recommend_cross_vendor_models ----------
+
+
+class TestRecommendCrossVendorModels:
+    def test_recommend_cross_vendor_exact_match(self, history_env):
+        """Same model name from different vendor is recommended."""
+        all_models = [
+            "openai/gpt-4o",
+            "azure-openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "deepseek/deepseek-v4-pro",
+        ]
+        result = cli.recommend_cross_vendor_models("openai/gpt-4o", all_models)
+
+        assert "azure-openai/gpt-4o" in result
+        assert "openai/gpt-4o" not in result
+        assert "openai/gpt-4o-mini" not in result
+
+    def test_recommend_cross_vendor_no_match(self, history_env):
+        """No matches returns empty list."""
+        all_models = [
+            "openai/gpt-4o",
+            "deepseek/deepseek-v4-pro",
+        ]
+        result = cli.recommend_cross_vendor_models("openai/gpt-4o", all_models)
+
+        assert result == []
+
+    def test_recommend_cross_vendor_same_vendor_excluded(self, history_env):
+        """Same vendor models are not recommended."""
+        all_models = [
+            "openai/gpt-4o",
+            "openai/gpt-4o-turbo",
+            "azure-openai/gpt-4o",
+        ]
+        result = cli.recommend_cross_vendor_models("openai/gpt-4o", all_models)
+
+        assert result == ["azure-openai/gpt-4o"]
+
+    def test_recommend_cross_vendor_sorted_by_frequency(self, history_env):
+        """Results sorted by frequency descending."""
+        cli.record_model_usage("other-vendor/gpt-4o")
+        cli.record_model_usage("other-vendor/gpt-4o")
+        cli.record_model_usage("another-vendor/gpt-4o")
+
+        all_models = [
+            "openai/gpt-4o",
+            "other-vendor/gpt-4o",
+            "another-vendor/gpt-4o",
+        ]
+        result = cli.recommend_cross_vendor_models("openai/gpt-4o", all_models)
+
+        assert result[0] == "other-vendor/gpt-4o"  # freq=2
+        assert result[1] == "another-vendor/gpt-4o"  # freq=1
+
+
+# ---------- get_category_aware_scores + category-aware sorting ----------
+
+
+class TestCategoryAwareScores:
+    def test_category_aware_score_higher_for_category_match(self, history_env):
+        """模型在特定分类下使用次数多时，该分类下评分更高。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="强模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+
+        scores = cli.get_category_aware_scores(["gpt-4o", "claude-sonnet"], "主模型")
+        assert scores["gpt-4o"] > scores["claude-sonnet"]
+
+    def test_collect_models_enriched_with_category(self, profile_env, history_env):
+        """传入 category 时按上下文感知评分排序。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+
+        result = cli.collect_models_enriched(category="主模型")
+        model_names = [m for m, _v, _f in result]
+        assert model_names.index("gpt-4o") < model_names.index("claude-sonnet")
+
+    def test_category_aware_score_zero_for_unknown(self, history_env):
+        """不在历史中的模型评分为 0.0。"""
+        scores = cli.get_category_aware_scores(["unknown-model"], "主模型")
+        assert scores["unknown-model"] == 0.0
