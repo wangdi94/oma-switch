@@ -464,3 +464,51 @@ class TestPromptSelectFallbackModels:
         assert len(result) == 5
         output = capsys.readouterr().out
         assert "最多只能选择 5 个" in output
+
+
+# ---------- Edge case tests (T10) ----------
+
+
+class TestEdgeCases:
+    def test_prompt_input_zero(self, profile_env, history_env, capsys):
+        """输入 0 时显示 '编号从 1 开始' 并重新提示，不崩溃。"""
+        with patch("builtins.input", side_effect=["0", "1"]):
+            model, variant = cli.prompt_select_model("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "编号从 1 开始" in output
+        # 应该成功选择第一个模型
+        assert model is not None
+
+    def test_parse_variant_unclosed_bracket(self):
+        """未闭合的括号应作为普通模型名返回。"""
+        model, variant = cli.parse_model_with_variant("model[xxx")
+        assert model == "model[xxx"
+        assert variant is None
+
+    def test_fuzzy_match_difflib_degradation(self):
+        """HAS_THEFUZZ=False 时 difflib 后备仍能正常匹配。"""
+        with patch("oma_switch.cli.HAS_THEFUZZ", False):
+            candidates = ["gpt-4o", "gpt-4o-mini", "claude-sonnet", "deepseek-v4-pro"]
+            # 精确匹配
+            result = cli.fuzzy_match_models("gpt-4o", candidates)
+            assert "gpt-4o" in result
+            # 前缀匹配
+            result = cli.fuzzy_match_models("gpt", candidates)
+            assert any("gpt" in m for m in result)
+            # 空查询
+            assert cli.fuzzy_match_models("", candidates) == []
+            # 空候选
+            assert cli.fuzzy_match_models("gpt", []) == []
+
+    def test_empty_history_alphabetical_sort(self, profile_env, history_env):
+        """历史为空时，所有模型频率为 0，按字母顺序排序。"""
+        # 不记录任何使用历史
+        result = cli.collect_models_enriched()
+        model_names = [m for m, _v, _f in result]
+        frequencies = [f for _m, _v, f in result]
+
+        # 所有频率应为 0
+        assert all(f == 0 for f in frequencies)
+        # 应按字母顺序排序
+        assert model_names == sorted(model_names, key=str.lower)

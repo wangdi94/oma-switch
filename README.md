@@ -116,7 +116,7 @@ src/oma_switch/
 
 ### 代码约定
 
-- 零第三方依赖（仅标准库）
+- 近零依赖（主要用标准库，thefuzz[speedup] 用于模糊搜索，可选，有 difflib fallback）
 - 中文化 UI（终端输出、错误信息）
 - 手动 CLI 解析（`sys.argv` + 字典分派）
 - 函数命名：`cmd_*`（公开命令），`_*`（内部辅助）
@@ -127,6 +127,7 @@ src/oma_switch/
 ~/.config/oma-switch/
 ├── config.json              # 配置元数据（当前配置、当前 fallback 等）
 ├── template.json            # 模板定义（可选，有内置默认值）
+├── history.json             # 模型使用频率记录（用于智能排序）
 ├── profiles/                # 配置文件的 JSON 存储
 │   ├── <name>.json
 │   └── ...

@@ -974,6 +974,9 @@ def prompt_select_model(
                 return "", None
 
         if choice.isdigit():
+            if choice == "0":
+                print_warning("编号从 1 开始，请重新输入")
+                continue
             idx = int(choice) - 1
             if 0 <= idx < len(display_list):
                 chosen = display_list[idx]

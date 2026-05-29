@@ -8,7 +8,7 @@
 
 Python CLI 工具，管理 opencode 的 `oh-my-openagent.json` 配置。按模板中的模型分类（主/强/中/弱/多模态）快速查看、创建、编辑、切换、比较配置。每个配置独立绑定 DCP 开关。支持 fallback 链管理（每分类独立配置 fallback 模型链）。
 
-栈：Python ≥3.10 + 标准库（零第三方依赖）+ pytest（开发依赖）。
+栈：Python ≥3.10 + 标准库 + thefuzz[speedup]（模糊搜索，可选，有 difflib fallback）+ pytest（开发依赖）。
 
 ## STRUCTURE
 
@@ -59,16 +59,21 @@ oma-switch/
 | `update_dcp_state(enable)` | cli.py:96 | 用正则修改 dcp.jsonc 的 enabled 字段 |
 | `check_template_profile(profile)` | cli.py:453 | 验证配置是否符合模板约束 |
 | `collect_all_models()` | cli.py:647 | 从所有 profile 提取不重复模型名 |
+| `collect_models_enriched(category)` | cli.py | 收集所有模型含 variant+频率，按频率排序 |
+| `record_model_usage(model, category)` | cli.py | 记录模型使用频率到 history.json |
+| `fuzzy_match_models(query, candidates)` | cli.py | 模糊搜索（thefuzz/difflib） |
+| `recommend_cross_vendor_models(model, all_models)` | cli.py | 跨供应商同模型推荐 |
+| `get_category_aware_scores(models, category)` | cli.py | 分类感知排序分数 |
 | `prompt_select_fallback_models(...)` | cli.py:733 | 交互式选择 fallback 模型链 |
 | `generate_fallback_from_types(...)` | cli.py:831 | 从用户选择生成 fallback 配置 |
 
 ## CONVENTIONS（与标准 Python 的偏差）
 
-- **零依赖**：全部用标准库，无第三方包（pytest 仅开发依赖）
+- **近零依赖**：主要用标准库，thefuzz[speedup] 用于模糊搜索（可选，有 difflib fallback）
 - **单体文件**：不拆分模块，2442 行全在 `cli.py`
 - **手动 CLI**：不用 argparse/click，`sys.argv` + 字典分派
 - **src 布局**：包在 `src/oma_switch/`，`setup.py` 用 `find_packages(where="src")`
-- **配置存储**：JSON 文件在 `~/.config/oma-switch/`（profiles/, fallbacks/, config.json, template.json）
+- **配置存储**：JSON 文件在 `~/.config/oma-switch/`（profiles/, fallbacks/, config.json, template.json, history.json）
 - **目标文件**：`~/.config/opencode/oh-my-openagent.json`
 - **中文化 UI**：终端输出、提示、错误信息均为中文
 - **函数命名**：公开命令 `cmd_*`，内部辅助 `_*`
@@ -78,7 +83,7 @@ oma-switch/
 
 ## ANTI-PATTERNS
 
-1. **`except ...: pass` 吞异常**（`collect_all_models()` L660, L671）— 损坏 JSON 时无声跳过
+1. **`except ...: pass` 吞异常**（`collect_all_models()` L660, L671）— 已修复，改为 `print_warning` 提示
 2. **`Dict[str, Any]` 逃逸类型检查** — 20 处，未用 TypedDict
 3. **无 CI** — 无 .github/workflows、Makefile
 4. **`dcp-config` 已废弃但保留** — 向后兼容，应迁移到 `dcp bind`
@@ -105,3 +110,5 @@ pytest tests/ -v           # 运行测试（98 个）
 - 测试中 `isolated_config_dir` fixture 有多个版本，需注意 monkeypatch 范围
 - 无 CI/CD 配置，无自动测试、lint、发布流水线
 - 无代码质量工具配置（无 mypy、ruff、black 等）
+- `history.json` 记录模型使用频率，位于 `~/.config/oma-switch/history.json`，用于智能排序
+- thefuzz 降级：`HAS_THEFUZZ` 标志（cli.py L22-26），不可用时自动回退到 difflib
