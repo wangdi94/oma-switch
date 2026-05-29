@@ -17,33 +17,48 @@ from .io_utils import _atomic_write_json
 from .version import _create_version_snapshot, _recover_from_versions, _rotate_versions
 
 
+def _load_json_with_recovery(filepath: Path, display_name: str) -> Optional[Dict[str, Any]]:
+    """加载 JSON 文件，损坏时尝试从版本历史恢复。
+
+    Args:
+        filepath: JSON 文件路径
+        display_name: 用于错误信息的显示名称（如 "配置文件"、"profile"、"fallback 配置"）
+
+    Returns:
+        加载的数据，文件不存在或无法恢复时返回 None
+    """
+    if not filepath.exists():
+        return None
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        corrupted_path = filepath.with_suffix(f".json.corrupted.{ts}")
+        try:
+            shutil.move(str(filepath), str(corrupted_path))
+        except OSError:
+            pass
+        print_warning(f"{display_name}已损坏，已保存为: {corrupted_path.name}")
+        recovered = _recover_from_versions(filepath)
+        if recovered is not None:
+            print_warning(f"已从版本历史恢复{display_name}")
+            return recovered
+        print_error(f"无法从版本历史恢复{display_name}，请手动恢复")
+        return None
+
+
 def _default_config() -> OmaSwitchConfig:
     return {"current": None, "profiles": {}, "current_fallback": ""}
 
 
 def load_config() -> OmaSwitchConfig:
-    if not CONFIG_FILE.exists():
+    data = _load_json_with_recovery(CONFIG_FILE, "配置文件")
+    if data is None:
         return _default_config()
-    try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = cast(OmaSwitchConfig, json.load(f))
-            config.setdefault("current_fallback", "")
-            return config
-    except json.JSONDecodeError:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        corrupted_path = CONFIG_FILE.with_suffix(f".json.corrupted.{ts}")
-        try:
-            shutil.move(str(CONFIG_FILE), str(corrupted_path))
-        except OSError:
-            pass
-        print_warning(f"配置文件已损坏，已保存为: {corrupted_path.name}")
-        recovered = _recover_from_versions(CONFIG_FILE)
-        if recovered is not None:
-            print_warning(f"已从版本历史恢复配置")
-            recovered.setdefault("current_fallback", "")
-            return cast(OmaSwitchConfig, recovered)
-        print_error("无法从版本历史恢复配置，请手动恢复或重新创建")
-        return _default_config()
+    config = cast(OmaSwitchConfig, data)
+    config.setdefault("current_fallback", "")
+    return config
 
 
 def save_config(config: OmaSwitchConfig) -> None:
@@ -88,25 +103,7 @@ def is_valid_json(filepath: Path) -> bool:
 def load_profile_json(name: str) -> Optional[Dict[str, Any]]:
     """加载配置文件，返回 None 如果不存在或无效"""
     path = get_profile_path(name)
-    if not path.exists():
-        return None
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        corrupted_path = path.with_suffix(f".json.corrupted.{ts}")
-        try:
-            shutil.move(str(path), str(corrupted_path))
-        except OSError:
-            pass
-        print_warning(f"配置文件损坏 [{name}]，已保存为: {corrupted_path.name}")
-        recovered = _recover_from_versions(path)
-        if recovered is not None:
-            print_warning(f"已从版本历史恢复配置 [{name}]")
-            return recovered
-        print_error(f"无法从版本历史恢复配置 [{name}]，请手动恢复")
-        return None
+    return _load_json_with_recovery(path, f"profile [{name}]")
 
 
 def get_fallback_path(name: str) -> Path:
@@ -115,25 +112,8 @@ def get_fallback_path(name: str) -> Path:
 
 def load_fallback_json(name: str) -> Optional[FallbackData]:
     path = get_fallback_path(name)
-    if not path.exists():
-        return None
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return cast(FallbackData, json.load(f))
-    except json.JSONDecodeError:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        corrupted_path = path.with_suffix(f".json.corrupted.{ts}")
-        try:
-            shutil.move(str(path), str(corrupted_path))
-        except OSError:
-            pass
-        print_warning(f"Fallback 配置文件损坏 [{name}]，已保存为: {corrupted_path.name}")
-        recovered = _recover_from_versions(path)
-        if recovered is not None:
-            print_warning(f"已从版本历史恢复 Fallback 配置 [{name}]")
-            return cast(FallbackData, recovered)
-        print_error(f"无法从版本历史恢复 Fallback 配置 [{name}]，请手动恢复")
-        return None
+    data = _load_json_with_recovery(path, f"fallback 配置 [{name}]")
+    return cast(FallbackData, data) if data is not None else None
 
 
 def save_fallback_json(name: str, data: FallbackData) -> None:
