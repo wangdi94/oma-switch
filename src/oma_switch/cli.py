@@ -81,7 +81,7 @@ def main() -> None:
         "add": cmd_add, "rm": cmd_rm, "edit": cmd_edit, "create": cmd_create,
         "view": cmd_view, "rename": cmd_rename, "list": cmd_list,
         "switch": cmd_switch, "diff": cmd_diff, "backup": cmd_backup,
-        "template": cmd_template, "dcp-config": cmd_dcp_config, "dcp": cmd_dcp,
+        "template": cmd_template, "dcp": cmd_dcp,
         "fallback": cmd_fallback, "restore": cmd_restore, "help": cmd_help,
     }
     if command in commands:

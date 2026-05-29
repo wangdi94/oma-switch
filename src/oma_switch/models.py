@@ -162,21 +162,6 @@ def fuzzy_match_models(query: str, candidates: List[str], limit: int = -1) -> Li
     return matches
 
 
-def filter_models_by_category(models: List[str], category: str) -> List[str]:
-    """过滤出在指定分类下有使用记录的模型。
-
-    .. deprecated::
-        此函数已弃用，无调用者。请使用 collect_models_enriched(category) 代替。
-    """
-    import warnings
-    warnings.warn(
-        "filter_models_by_category 已弃用，请使用 collect_models_enriched(category) 代替",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return [m for m in models if get_category_frequency(m, category) > 0]
-
-
 def parse_model_vendor_name(model: str) -> Tuple[str, str]:
     """解析 vendor/model 格式，返回 (vendor, model_name)，均不含 variant。
 

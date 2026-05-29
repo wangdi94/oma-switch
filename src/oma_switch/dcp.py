@@ -31,7 +31,7 @@ __all__ = [
     "_get_profile_dcp_enabled",
     "_set_profile_dcp_enabled",
     "_apply_profile_dcp",
-    "cmd_dcp_config",
+
     "_dcp_show",
     "_dcp_edit",
     "_dcp_set",
@@ -122,15 +122,6 @@ def _apply_profile_dcp(config: OmaSwitchConfig, name: str) -> None:
     dcp_enabled = _get_profile_dcp_enabled(profile_meta)
     update_dcp_state(dcp_enabled)
 
-
-def cmd_dcp_config(args: List[str]) -> None:
-    """配置 DCP 插件（已废弃，请使用 'oma-switch dcp bind'）"""
-    print_warning("'dcp-config' 命令已废弃，请使用 'oma-switch dcp bind'")
-    print_info("示例:")
-    print_info("  oma-switch dcp bind <name> on     # 启用配置的 DCP")
-    print_info("  oma-switch dcp bind <name> off    # 禁用配置的 DCP")
-    print_info("  oma-switch dcp bind               # 查看当前配置的 DCP 绑定")
-    print_info("  oma-switch dcp on                 # 启用 DCP（同步到当前配置）")
 
 
 # ── 完整 DCP 管理命令 ─────────────────────────────────────────────

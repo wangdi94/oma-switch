@@ -1,7 +1,7 @@
 """
 Tests for intelligent model collection, sorting, and fuzzy search.
 
-Covers: collect_models_enriched, fuzzy_match_models, filter_models_by_category,
+Covers: collect_models_enriched, fuzzy_match_models,
 and the updated collect_all_models with fallback scanning and warning.
 """
 
@@ -173,28 +173,6 @@ class TestFuzzyMatchModels:
         result = cli.fuzzy_match_models("gpt-4o", candidates)
 
         assert "gpt-4o" in result
-
-
-# ---------- filter_models_by_category ----------
-
-
-class TestFilterModelsByCategory:
-    def test_filters_by_category(self, history_env):
-        """Only models with usage in category are returned."""
-        cli.record_model_usage("gpt-4o", category="主模型")
-        cli.record_model_usage("claude-sonnet", category="强模型")
-
-        models = ["gpt-4o", "claude-sonnet", "gemini-pro"]
-        result = cli.filter_models_by_category(models, "主模型")
-
-        assert result == ["gpt-4o"]
-
-    def test_no_usage_returns_empty(self, history_env):
-        """Models without category usage are filtered out."""
-        cli.record_model_usage("gpt-4o")  # no category
-
-        result = cli.filter_models_by_category(["gpt-4o"], "主模型")
-        assert result == []
 
 
 # ---------- collect_all_models (updated) ----------
