@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="oma-switch",
-    version="2.0.0",
+    version="2.1.0",
     description="OMA (Oh-My-Agent) 配置文件切换工具 — 管理 opencode 的 oh-my-openagent.json 配置",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
