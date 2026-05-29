@@ -1,7 +1,7 @@
 # oma-switch
 
 **Generated:** 2026-05-29
-**Commit:** 6b24c59
+**Commit:** fac4cf4
 **Branch:** master
 
 ## OVERVIEW
@@ -18,7 +18,7 @@ oma-switch/
 ├── setup.py               # 所有元数据+入口点（传统模式）
 ├── install.sh             # pip install 包装
 ├── src/oma_switch/
-│   ├── __init__.py        # v2.0.0
+│   ├── __init__.py        # v2.1.0
 │   ├── __main__.py        # python -m 入口 → cli.main
 │   └── cli.py             # 2442行单体：全部逻辑
 ├── tests/                 # 98 个测试（12 个文件）
@@ -101,3 +101,7 @@ pytest tests/ -v           # 运行测试（98 个）
 - 构建产物 `build/` 在 `.gitignore` 中，剩余文件可清理
 - `.pytest_cache/` `.omo/` `.sisyphus/` 未在 `.gitignore` 中
 - Fallback 和 Profile 完全独立：切换 profile 保留 fallback，切换 fallback 不动 model
+- 版本号双重硬编码：`setup.py` 和 `__init__.py` 各维护一份，需手动同步
+- 测试中 `isolated_config_dir` fixture 有多个版本，需注意 monkeypatch 范围
+- 无 CI/CD 配置，无自动测试、lint、发布流水线
+- 无代码质量工具配置（无 mypy、ruff、black 等）
