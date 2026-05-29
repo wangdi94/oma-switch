@@ -7,6 +7,7 @@ OMA (Oh-My-Agent) 配置文件切换工具
 详细模式（--detail）：完整的 JSON 操作（编辑/全文查看/系统 diff）
 """
 
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import sys
 import copy
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -98,8 +100,9 @@ def load_history() -> Dict[str, Any]:
 def save_history(history: Dict[str, Any]) -> None:
     """保存模型使用历史记录"""
     HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(history, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(HISTORY_FILE, "save_history")
+    _atomic_write_json(HISTORY_FILE, history)
+    _rotate_versions(HISTORY_FILE)
 
 
 def record_model_usage(model: str, category: Optional[str] = None) -> None:
@@ -163,8 +166,7 @@ def get_dcp_config() -> Dict[str, Any]:
 def save_dcp_config(config: Dict[str, Any]) -> None:
     """保存 DCP 插件配置"""
     OPENCODE_DIR.mkdir(parents=True, exist_ok=True)
-    with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    _atomic_write_json(DCP_CONFIG_FILE, config)
 
 
 def update_dcp_state(enable: bool) -> None:
@@ -248,8 +250,9 @@ def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
         if key in source_profile:
             current[key] = copy.deepcopy(source_profile[key])
 
-    with open(OMA_CONFIG, 'w', encoding='utf-8') as f:
-        json.dump(current, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(OMA_CONFIG, "merge_to_oma_config")
+    _atomic_write_json(OMA_CONFIG, current)
+    _rotate_versions(OMA_CONFIG)
 
 
 def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
@@ -291,8 +294,9 @@ def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
 
     current["model_fallback"] = any_active
 
-    with open(OMA_CONFIG, 'w', encoding='utf-8') as f:
-        json.dump(current, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(OMA_CONFIG, "merge_fallback_to_oma_config")
+    _atomic_write_json(OMA_CONFIG, current)
+    _rotate_versions(OMA_CONFIG)
 
 
 def _default_config() -> Dict[str, Any]:
@@ -308,13 +312,457 @@ def load_config() -> Dict[str, Any]:
             config.setdefault("current_fallback", "")
             return config
     except json.JSONDecodeError:
-        print_error("配置文件损坏，将重新创建")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        corrupted_path = CONFIG_FILE.with_suffix(f".json.corrupted.{ts}")
+        try:
+            shutil.move(str(CONFIG_FILE), str(corrupted_path))
+        except OSError:
+            pass
+        print_warning(f"配置文件已损坏，已保存为: {corrupted_path.name}")
+        recovered = _recover_from_versions(CONFIG_FILE)
+        if recovered is not None:
+            print_warning(f"已从版本历史恢复配置")
+            recovered.setdefault("current_fallback", "")
+            return recovered
+        print_error("无法从版本历史恢复配置，请手动恢复或重新创建")
         return _default_config()
 
 
+def _atomic_write_json(filepath: Path, data: Dict[str, Any], indent: int = 2, ensure_ascii: bool = False) -> None:
+    """原子性写入 JSON 文件：写入临时文件 → fsync → 原子替换目标文件。"""
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w', dir=filepath.parent, suffix='.tmp', delete=False, encoding='utf-8'
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+            json.dump(data, tmp_file, indent=indent, ensure_ascii=ensure_ascii)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+        # 保留原文件权限
+        if filepath.exists():
+            shutil.copymode(filepath, tmp_path)
+        os.replace(tmp_path, filepath)
+    except Exception:
+        # 写入失败时清理临时文件，目标文件保持不变
+        if tmp_path is not None and tmp_path.exists():
+            os.unlink(tmp_path)
+        raise
+
+
+# ---------- 版本管理 ----------
+
+
+def _get_version_dir(filepath: Path) -> Path:
+    """根据文件路径返回对应的版本目录，结构: ~/.config/oma-switch/.versions/<filename>"""
+    version_dir = CONFIG_DIR / ".versions" / filepath.name
+    version_dir.mkdir(parents=True, exist_ok=True)
+    return version_dir
+
+
+def _create_version_snapshot(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> None:
+    """在写入前创建版本快照"""
+    if not filepath.exists():
+        return
+
+    version_dir = _get_version_dir(filepath)
+    ts_short = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = filepath.stem
+    suffix = filepath.suffix or ".json"
+
+    version_filename = f"{stem}.{ts_short}{suffix}"
+    version_path = version_dir / version_filename
+    shutil.copy2(filepath, version_path)
+
+    meta = _create_version_metadata(filepath, operation, command_args)
+    meta_path = version_dir / f"{stem}.{ts_short}.meta.json"
+    with open(meta_path, 'w', encoding='utf-8') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+
+def _rotate_versions(filepath: Path, max_versions: int = 10) -> None:
+    """按时间戳排序版本文件，删除超过 max_versions 的最旧版本"""
+    version_dir = _get_version_dir(filepath)
+    stem = filepath.stem
+    suffix = filepath.suffix or ".json"
+
+    version_files = [
+        p for p in version_dir.glob(f"{stem}.*{suffix}")
+        if not p.name.endswith(".meta.json") and p.is_file()
+    ]
+    if len(version_files) <= max_versions:
+        return
+
+    version_files.sort(key=lambda p: p.name)
+    to_delete = version_files[: len(version_files) - max_versions]
+
+    for vf in to_delete:
+        vf.unlink(missing_ok=True)
+        meta_file = vf.with_suffix(".meta.json")
+        meta_file.unlink(missing_ok=True)
+
+
+def _list_versions(filepath: Path) -> List[Dict[str, Any]]:
+    """列出指定文件的所有版本，按时间戳降序排序"""
+    version_dir = CONFIG_DIR / ".versions" / filepath.name
+    if not version_dir.exists():
+        return []
+
+    stem = filepath.stem
+    suffix = filepath.suffix or ".json"
+
+    version_files = [
+        p for p in version_dir.glob(f"{stem}.*{suffix}")
+        if not p.name.endswith(".meta.json") and p.is_file()
+    ]
+
+    versions: List[Dict[str, Any]] = []
+    for vf in version_files:
+        name_parts = vf.name.rsplit(".", 1)[0]
+        timestamp = name_parts.replace(f"{stem}.", "", 1)
+
+        meta_file = vf.with_suffix(".meta.json")
+        meta = _load_version_metadata(meta_file) or {}
+
+        versions.append({
+            "timestamp": meta.get("timestamp", timestamp),
+            "file_path": str(vf),
+            "operation": meta.get("operation", ""),
+            "command_args": meta.get("command_args", []),
+            "file_size": meta.get("file_size", vf.stat().st_size if vf.exists() else 0),
+            "file_hash": meta.get("file_hash", ""),
+        })
+
+    # 按时间戳降序排序（最新在前）
+    versions.sort(key=lambda v: v["timestamp"], reverse=True)
+    return versions
+
+
+def _recover_from_versions(filepath: Path) -> Optional[Dict[str, Any]]:
+    """从版本历史恢复最新有效版本"""
+    versions = _list_versions(filepath)
+    for ver in versions:
+        ver_path = Path(ver["file_path"])
+        if not ver_path.exists():
+            continue
+        try:
+            with open(ver_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data
+        except (json.JSONDecodeError, IOError):
+            continue
+    return None
+
+
+# ---------- 版本恢复 ----------
+
+
+def _show_restore_list() -> None:
+    """显示所有可恢复的文件和版本数量"""
+    versions_dir = CONFIG_DIR / ".versions"
+    if not versions_dir.exists():
+        print_warning("没有找到任何版本历史")
+        return
+
+    file_dirs = sorted([d for d in versions_dir.iterdir() if d.is_dir()])
+    if not file_dirs:
+        print_warning("没有找到任何版本历史")
+        return
+
+    print_info("可恢复的文件:")
+    print()
+    for file_dir in file_dirs:
+        version_files = [
+            p for p in file_dir.iterdir()
+            if p.is_file() and not p.name.endswith(".meta.json")
+        ]
+        count = len(version_files)
+        if count > 0:
+            print(f"  {Colors.BOLD}{file_dir.name}{Colors.NC} ({count} 个版本)")
+    print()
+    print_dim("使用 'oma-switch restore <file>' 查看指定文件的版本列表")
+
+
+def _show_file_versions(filepath: Path) -> None:
+    """显示指定文件的版本列表"""
+    versions = _list_versions(filepath)
+    if not versions:
+        print_warning(f"文件 {filepath.name} 没有版本历史")
+        return
+
+    print_info(f"{filepath.name} 的版本历史:")
+    print()
+    for i, ver in enumerate(versions, 1):
+        ts = ver.get("timestamp", "未知时间")
+        op = ver.get("operation", "未知操作")
+        size = ver.get("file_size", 0)
+        size_str = f"{size:,}" if size > 0 else "未知"
+        print(f"  [{i}] {Colors.BOLD}{ts}{Colors.NC} - {op} ({size_str} 字节)")
+    print()
+    print_dim("使用 'oma-switch restore <file> <版本号>' 恢复指定版本")
+
+
+def _restore_version(filepath: Path, version_id: str) -> bool:
+    """恢复指定版本
+
+    参数：
+        filepath: 目标文件路径
+        version_id: 版本标识（支持序号或时间戳）
+
+    返回：
+        是否成功恢复
+    """
+    versions = _list_versions(filepath)
+    if not versions:
+        print_error(f"文件 {filepath.name} 没有版本历史")
+        return False
+
+    target_version = None
+    try:
+        idx = int(version_id) - 1
+        if 0 <= idx < len(versions):
+            target_version = versions[idx]
+        else:
+            print_error(f"版本序号 {version_id} 超出范围 (1-{len(versions)})")
+            return False
+    except ValueError:
+        for ver in versions:
+            if ver.get("timestamp") == version_id:
+                target_version = ver
+                break
+        if target_version is None:
+            print_error(f"未找到版本: {version_id}")
+            print_info("使用 'oma-switch restore <file>' 查看可用版本")
+            return False
+
+    ver_path = Path(target_version["file_path"])
+    if not ver_path.exists():
+        print_error(f"版本文件不存在: {ver_path}")
+        return False
+
+    try:
+        with open(ver_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print_error(f"版本文件读取失败: {e}")
+        return False
+
+    ts = target_version.get("timestamp", "未知时间")
+    op = target_version.get("operation", "未知操作")
+    size = target_version.get("file_size", 0)
+
+    print()
+    print_color(Colors.BOLD, "将要恢复的版本:")
+    print(f"  时间:   {ts}")
+    print(f"  操作:   {op}")
+    print(f"  大小:   {size:,} 字节")
+    print()
+
+    if isinstance(data, dict):
+        print_color(Colors.BOLD, "  内容摘要:")
+        for key in list(data.keys())[:8]:
+            val = data[key]
+            if isinstance(val, str) and len(val) > 60:
+                val = val[:57] + "..."
+            elif isinstance(val, (dict, list)):
+                val = f"[{type(val).__name__}, {len(val)} 项]"
+            print(f"    {key}: {val}")
+        print()
+
+    try:
+        confirm = input(f"{Colors.YELLOW}确认恢复此版本？(y/N): {Colors.NC}").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print_warning("已取消恢复")
+        return False
+
+    if confirm not in ("y", "yes"):
+        print_warning("已取消恢复")
+        return False
+
+    if filepath.exists():
+        _create_version_snapshot(filepath, "pre_restore")
+        _rotate_versions(filepath)
+
+    try:
+        _atomic_write_json(filepath, data)
+        print_success(f"已恢复 {filepath.name} 到版本 {ts}")
+        return True
+    except Exception as e:
+        print_error(f"恢复失败: {e}")
+        return False
+
+
+def cmd_restore(args: List[str]) -> None:
+    """恢复历史版本命令
+
+    用法:
+        oma-switch restore                  显示所有可恢复的文件和版本列表
+        oma-switch restore <file>           显示指定文件的版本列表
+        oma-switch restore <file> <version> 恢复指定版本
+    """
+    if not args:
+        _show_restore_list()
+        return
+
+    filename = args[0]
+
+    filepath: Optional[Path] = None
+    candidates = [
+        CONFIG_DIR / filename,
+        CONFIG_DIR / "profiles" / filename,
+        CONFIG_DIR / "fallbacks" / filename,
+        Path(filename),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            filepath = candidate
+            break
+
+    if filepath is None:
+        versions_dir = CONFIG_DIR / ".versions"
+        if versions_dir.exists():
+            for d in versions_dir.iterdir():
+                if d.is_dir() and d.name == filename:
+                    meta_files = sorted(d.glob("*.meta.json"), reverse=True)
+                    for meta_file in meta_files:
+                        try:
+                            with open(meta_file, 'r', encoding='utf-8') as f:
+                                meta = json.load(f)
+                            if "file_path" in meta:
+                                filepath = Path(meta["file_path"])
+                                break
+                        except (json.JSONDecodeError, IOError):
+                            continue
+                    
+                    if filepath is None:
+                        filepath = CONFIG_DIR / filename
+                    break
+
+    if filepath is None:
+        print_error(f"未找到文件: {filename}")
+        print_info("使用 'oma-switch restore' 查看可恢复的文件列表")
+        sys.exit(1)
+
+    if len(args) >= 2:
+        version_id = args[1]
+        _restore_version(filepath, version_id)
+    else:
+        _show_file_versions(filepath)
+
+
+def _create_version_metadata(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> Dict[str, Any]:
+    """创建版本元数据字典
+
+    参数：
+        filepath: 目标文件路径
+        operation: 操作名称（如 'switch', 'edit', 'create'）
+        command_args: 命令参数列表
+
+    返回：
+        包含版本元数据的字典，格式：
+        {
+            "timestamp": "2026-05-29T12:00:00",
+            "operation": "switch",
+            "command_args": ["my-profile"],
+            "file_path": "~/.config/oma-switch/config.json",
+            "file_size": 1234,
+            "file_hash": "sha256:abc123..."
+        }
+    """
+    timestamp = datetime.now().isoformat()
+
+    if filepath.exists():
+        file_size = filepath.stat().st_size
+        file_hash = "sha256:" + hashlib.sha256(filepath.read_bytes()).hexdigest()
+    else:
+        file_size = 0
+        file_hash = ""
+
+    return {
+        "timestamp": timestamp,
+        "operation": operation,
+        "command_args": command_args or [],
+        "file_path": str(filepath),
+        "file_size": file_size,
+        "file_hash": file_hash,
+    }
+
+
+def _validate_version_metadata(metadata: Dict[str, Any]) -> bool:
+    """验证版本元数据格式
+
+    检查必需字段是否存在，timestamp 是否为 ISO 8601 格式，
+    file_hash 是否以 'sha256:' 开头（或为空字符串）。
+
+    返回 True 表示有效，False 表示无效。
+    """
+    required_fields = ["timestamp", "operation", "file_path", "file_size", "file_hash"]
+    for field in required_fields:
+        if field not in metadata:
+            return False
+
+    timestamp = metadata.get("timestamp", "")
+    if not isinstance(timestamp, str) or not timestamp:
+        return False
+
+    # ISO 8601: 2026-05-29T12:00:00[.123456]  紧凑: 20260529_120000
+    _TS_RE = re.compile(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+        r"(\.\d+)?"
+        r"([+-]\d{2}:\d{2}|Z)?$"
+        r"|^\d{8}_\d{6}$"
+    )
+    if not _TS_RE.match(timestamp):
+        return False
+
+    # 验证 file_hash
+    file_hash = metadata.get("file_hash", "")
+    if file_hash and not file_hash.startswith("sha256:"):
+        return False
+
+    # 验证 file_size 为非负整数
+    file_size = metadata.get("file_size")
+    if not isinstance(file_size, int) or file_size < 0:
+        return False
+
+    # 验证 operation 和 file_path 为字符串
+    if not isinstance(metadata.get("operation"), str):
+        return False
+    if not isinstance(metadata.get("file_path"), str):
+        return False
+
+    return True
+
+
+def _load_version_metadata(version_path: Path) -> Optional[Dict[str, Any]]:
+    """加载版本元数据文件
+
+    参数：
+        version_path: 元数据文件路径
+
+    返回：
+        成功时返回元数据字典；文件不存在或格式错误时返回 None
+    """
+    if not version_path.exists():
+        return None
+
+    try:
+        with open(version_path, 'r', encoding='utf-8') as f:
+            data: Dict[str, Any] = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+
+    if not _validate_version_metadata(data):
+        return None
+
+    return data
+
+
 def save_config(config: Dict[str, Any]) -> None:
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(CONFIG_FILE, "save_config")
+    _atomic_write_json(CONFIG_FILE, config)
+    _rotate_versions(CONFIG_FILE)
 
 
 def get_current_fallback(config: Dict[str, Any]) -> str:
@@ -351,7 +799,7 @@ def is_valid_json(filepath: Path) -> bool:
 
 
 def load_profile_json(name: str) -> Optional[Dict[str, Any]]:
-    """Load a profile by name, return None if missing/invalid."""
+    """加载配置文件，返回 None 如果不存在或无效"""
     path = get_profile_path(name)
     if not path.exists():
         return None
@@ -359,6 +807,18 @@ def load_profile_json(name: str) -> Optional[Dict[str, Any]]:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except json.JSONDecodeError:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        corrupted_path = path.with_suffix(f".json.corrupted.{ts}")
+        try:
+            shutil.move(str(path), str(corrupted_path))
+        except OSError:
+            pass
+        print_warning(f"配置文件损坏 [{name}]，已保存为: {corrupted_path.name}")
+        recovered = _recover_from_versions(path)
+        if recovered is not None:
+            print_warning(f"已从版本历史恢复配置 [{name}]")
+            return recovered
+        print_error(f"无法从版本历史恢复配置 [{name}]，请手动恢复")
         return None
 
 
@@ -374,13 +834,26 @@ def load_fallback_json(name: str) -> Optional[Dict[str, Any]]:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except json.JSONDecodeError:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        corrupted_path = path.with_suffix(f".json.corrupted.{ts}")
+        try:
+            shutil.move(str(path), str(corrupted_path))
+        except OSError:
+            pass
+        print_warning(f"Fallback 配置文件损坏 [{name}]，已保存为: {corrupted_path.name}")
+        recovered = _recover_from_versions(path)
+        if recovered is not None:
+            print_warning(f"已从版本历史恢复 Fallback 配置 [{name}]")
+            return recovered
+        print_error(f"无法从版本历史恢复 Fallback 配置 [{name}]，请手动恢复")
         return None
 
 
 def save_fallback_json(name: str, data: Dict[str, Any]) -> None:
     FALLBACKS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(get_fallback_path(name), 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(get_fallback_path(name), "save_fallback_json")
+    _atomic_write_json(get_fallback_path(name), data)
+    _rotate_versions(get_fallback_path(name))
 
 
 def list_fallback_names() -> List[str]:
@@ -524,8 +997,9 @@ def load_template() -> Dict[str, set]:
 def save_template(template: Dict[str, set]) -> None:
     """保存用户自定义模板到文件"""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(TEMPLATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(_template_to_json(template), f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(TEMPLATE_FILE, "save_template")
+    _atomic_write_json(TEMPLATE_FILE, _template_to_json(template))
+    _rotate_versions(TEMPLATE_FILE)
 
 
 def check_template_profile(profile: dict, template: Optional[Dict[str, set]] = None) -> bool:
@@ -1410,8 +1884,9 @@ def cmd_edit(args: List[str]) -> None:
         print_error("编辑后的配置不满足模板约束（请确保同一分组内所有 agent/category 使用相同模型）")
         return
 
-    with open(profile_path, 'w', encoding='utf-8') as f:
-        json.dump(new_profile, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(profile_path, "cmd_edit")
+    _atomic_write_json(profile_path, new_profile)
+    _rotate_versions(profile_path)
 
     config["profiles"][name]["modified"] = datetime.now().isoformat()
     save_config(config)
@@ -1499,8 +1974,9 @@ def cmd_create(args: List[str]) -> None:
         return
 
     profile_path = get_profile_path(name)
-    with open(profile_path, 'w', encoding='utf-8') as f:
-        json.dump(new_profile, f, indent=2, ensure_ascii=False)
+    _create_version_snapshot(profile_path, "cmd_create")
+    _atomic_write_json(profile_path, new_profile)
+    _rotate_versions(profile_path)
 
     config["profiles"][name] = {
         "created": datetime.now().isoformat(),
@@ -1978,6 +2454,10 @@ def cmd_switch(args: List[str]) -> None:
 
     if OMA_CONFIG.exists():
         backup_path = OMA_CONFIG.with_suffix('.json.backup')
+        if backup_path.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archived = OMA_CONFIG.with_suffix(f'.json.backup.{ts}')
+            shutil.move(str(backup_path), str(archived))
         shutil.copy2(OMA_CONFIG, backup_path)
 
     merge_to_oma_config(profile)
@@ -2121,6 +2601,8 @@ def cmd_backup(args: List[str]) -> None:
     if not OMA_CONFIG.exists():
         print_error("当前 OMA 配置文件不存在")
         sys.exit(1)
+
+    _create_version_snapshot(OMA_CONFIG, "cmd_backup", args)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"backup_{timestamp}"
@@ -2518,8 +3000,9 @@ def sync_profiles_after_template_change(old_template: Dict[str, set], new_templa
 
         if changed:
             profile_path = get_profile_path(name)
-            with open(profile_path, 'w', encoding='utf-8') as f:
-                json.dump(profile, f, indent=2, ensure_ascii=False)
+            _create_version_snapshot(profile_path, "sync_profiles")
+            _atomic_write_json(profile_path, profile)
+            _rotate_versions(profile_path)
             updated += 1
 
     return updated
@@ -2561,8 +3044,9 @@ def cmd_template(args: List[str]) -> None:
         json_data = _template_to_json(template)
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(TEMPLATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        _create_version_snapshot(TEMPLATE_FILE, "cmd_template")
+        _atomic_write_json(TEMPLATE_FILE, json_data)
+        _rotate_versions(TEMPLATE_FILE)
 
         print_info("正在编辑模板...")
         if open_editor(TEMPLATE_FILE):
@@ -2667,6 +3151,7 @@ OMA 配置文件切换工具 (v2.0)
       list                     列出所有配置文件
       switch <name>            切换到指定配置文件
       backup                   备份当前配置
+      restore [file] [version] 恢复历史版本
       template [edit|reset|diff] 查看/编辑/重置/比较模板
       dcp [subcommand]         管理 DCP 插件（每个配置独立绑定）
 
@@ -2795,6 +3280,7 @@ def main() -> None:
         "dcp-config": cmd_dcp_config,
         "dcp": cmd_dcp,
         "fallback": cmd_fallback,
+        "restore": cmd_restore,
         "help": cmd_help,
     }
 

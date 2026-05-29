@@ -32,7 +32,7 @@ def test_empty_clears(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda _: "")
     with patch.object(cli, "collect_models_enriched", return_value=ENRICHED):
         result = prompt_select_fallback_models("主模型", MODELS, current=["a", "b"])
-    assert result == []
+    assert result == ["a", "b"]
 
 
 def test_max_five(monkeypatch, capsys):

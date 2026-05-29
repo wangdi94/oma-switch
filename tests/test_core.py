@@ -104,7 +104,7 @@ def _make_valid_profile(
 def test_load_config_returns_default_when_missing(isolated_config_dir):
     """load_config returns default structure when CONFIG_FILE doesn't exist."""
     result = cli.load_config()
-    assert result == {"current": None, "profiles": {}}
+    assert result == {"current": None, "profiles": {}, "current_fallback": ""}
 
 
 def test_save_and_load_config_roundtrip(isolated_config_dir):
@@ -135,7 +135,7 @@ def test_load_config_corrupted_returns_default(isolated_config_dir):
     """load_config returns default when file contains invalid JSON."""
     cli.CONFIG_FILE.write_text("NOT_JSON{{{", encoding="utf-8")
     result = cli.load_config()
-    assert result == {"current": None, "profiles": {}}
+    assert result == {"current": None, "profiles": {}, "current_fallback": ""}
 
 
 # ── load_profile_json ─────────────────────────────────────────────
