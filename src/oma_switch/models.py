@@ -8,10 +8,10 @@ Contains model collection, analysis, and search functions.
 import json
 from typing import Dict, List, Optional, Tuple
 
-from .constants import HAS_THEFUZZ, _fuzz, PROFILES_DIR, OMA_CONFIG, FALLBACKS_DIR
-from .history import get_model_frequency, get_category_frequency, get_category_aware_scores
-from .template import parse_model_with_variant
+from .constants import FALLBACKS_DIR, HAS_THEFUZZ, OMA_CONFIG, PROFILES_DIR, _fuzz
 from .display import print_warning
+from .history import get_category_aware_scores, get_model_frequency
+from .template import parse_model_with_variant
 
 
 def collect_all_models() -> List[str]:
@@ -21,7 +21,7 @@ def collect_all_models() -> List[str]:
     if PROFILES_DIR.exists():
         for f in sorted(PROFILES_DIR.glob("*.json")):
             try:
-                with open(f, 'r', encoding='utf-8') as fh:
+                with open(f, "r", encoding="utf-8") as fh:
                     profile = json.load(fh)
                 for section in ("agents", "categories"):
                     for value in profile.get(section, {}).values():
@@ -32,7 +32,7 @@ def collect_all_models() -> List[str]:
 
     if OMA_CONFIG.exists():
         try:
-            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            with open(OMA_CONFIG, "r", encoding="utf-8") as f:
                 profile = json.load(f)
             for section in ("agents", "categories"):
                 for value in profile.get(section, {}).values():
@@ -44,7 +44,7 @@ def collect_all_models() -> List[str]:
     if FALLBACKS_DIR.exists():
         for f in sorted(FALLBACKS_DIR.glob("*.json")):
             try:
-                with open(f, 'r', encoding='utf-8') as fh:
+                with open(f, "r", encoding="utf-8") as fh:
                     fallback = json.load(fh)
                 for category_data in fallback.values():
                     if isinstance(category_data, dict):
@@ -81,7 +81,7 @@ def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, O
     if PROFILES_DIR.exists():
         for f in PROFILES_DIR.glob("*.json"):
             try:
-                with open(f, 'r', encoding='utf-8') as fh:
+                with open(f, "r", encoding="utf-8") as fh:
                     profile = json.load(fh)
                 for section in ("agents", "categories"):
                     for value in profile.get(section, {}).values():
@@ -93,7 +93,7 @@ def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, O
     # 从 OMA_CONFIG 收集
     if OMA_CONFIG.exists():
         try:
-            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            with open(OMA_CONFIG, "r", encoding="utf-8") as f:
                 profile = json.load(f)
             for section in ("agents", "categories"):
                 for value in profile.get(section, {}).values():
@@ -106,7 +106,7 @@ def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, O
     if FALLBACKS_DIR.exists():
         for f in FALLBACKS_DIR.glob("*.json"):
             try:
-                with open(f, 'r', encoding='utf-8') as fh:
+                with open(f, "r", encoding="utf-8") as fh:
                     fallback = json.load(fh)
                 for category_data in fallback.values():
                     if isinstance(category_data, dict):
@@ -148,6 +148,7 @@ def fuzzy_match_models(query: str, candidates: List[str], limit: int = -1) -> Li
         matches = [c for c, _ in scored]
     else:
         import difflib
+
         matches = list(difflib.get_close_matches(query, candidates, n=10, cutoff=0.6))
 
     prefix_matches = sorted(

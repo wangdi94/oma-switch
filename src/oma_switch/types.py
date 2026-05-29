@@ -11,7 +11,6 @@ TypedDict 定义模块：为 oma-switch 核心数据结构提供类型注解。
 
 from typing import Dict, List, Optional, TypedDict, Union
 
-
 # ── Profile 元数据 ────────────────────────────────────────────────
 
 

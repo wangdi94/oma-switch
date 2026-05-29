@@ -4,21 +4,28 @@ Fallback 链管理命令
 """
 
 import sys
-from typing import Dict, List, Any, cast
+from typing import Any, Dict, List, cast
 
-from .display import print_error, print_info, print_warning, print_success, print_color, Colors
-from .config_io import (
-    load_fallback_json, save_fallback_json, delete_fallback_json,
-    list_fallback_names, load_config, get_current_fallback,
-    set_current_fallback, clear_current_fallback_if_deleted
-)
-from .template import (
-    load_template, validate_fallback_config,
-    get_fallback_summary, print_fallback_summary
-)
-from .models import collect_all_models
-from .prompt import prompt_select_fallback_models, generate_fallback_from_types
 from .cli_helpers import merge_fallback_to_oma_config
+from .config_io import (
+    clear_current_fallback_if_deleted,
+    delete_fallback_json,
+    get_current_fallback,
+    list_fallback_names,
+    load_config,
+    load_fallback_json,
+    save_fallback_json,
+    set_current_fallback,
+)
+from .display import Colors, print_color, print_error, print_info, print_success, print_warning
+from .models import collect_all_models
+from .prompt import generate_fallback_from_types, prompt_select_fallback_models
+from .template import (
+    get_fallback_summary,
+    load_template,
+    print_fallback_summary,
+    validate_fallback_config,
+)
 
 
 def cmd_fallback_create(args: List[str]) -> None:
@@ -312,7 +319,7 @@ def cmd_fallback_rm(args: List[str]) -> None:
         sys.exit(1)
 
     response = input(f"确定要删除 fallback '{name}' 吗? (y/N): ").strip().lower()
-    if response != 'y':
+    if response != "y":
         print_info("已取消")
         return
 
@@ -362,7 +369,9 @@ def _fallback_help() -> None:
     print_info("Fallback 链管理")
     print()
     print_color(Colors.BOLD, "说明:")
-    print("  管理模型 fallback 链配置。切换时自动写入 oh-my-openagent.json 的 fallback_models 字段。")
+    print(
+        "  管理模型 fallback 链配置。切换时自动写入 oh-my-openagent.json 的 fallback_models 字段。"
+    )
     print()
     print_color(Colors.BOLD, "用法:")
     print("  oma-switch fallback [help]                 查看此帮助信息")

@@ -5,22 +5,11 @@ Constants module for oma-switch.
 Contains all module-level path constants and thefuzz availability flag.
 """
 
-import hashlib
-import json
-import os
-import re
-import readline  # 启用 input() 的行编辑功能（方向键、历史记录等）
-import sys
-import copy
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
 
 try:
-    from thefuzz import fuzz as _fuzz
+    from thefuzz import fuzz as _fuzz  # noqa: F401
+
     HAS_THEFUZZ = True
 except ImportError:
     HAS_THEFUZZ = False

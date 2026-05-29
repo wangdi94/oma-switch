@@ -7,11 +7,14 @@ import copy
 import json
 import sys
 import types
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .types import FallbackData
-
+from .config_io import (
+    get_profile_path,
+    is_valid_json,
+    load_config,
+    load_profile_json,
+)
 from .constants import CONFIG_DIR, TEMPLATE_FILE
 from .display import (
     Colors,
@@ -22,14 +25,8 @@ from .display import (
     print_warning,
 )
 from .io_utils import _atomic_write_json
+from .types import FallbackData
 from .version import _create_version_snapshot, _rotate_versions
-from .config_io import (
-    get_profile_path,
-    is_valid_json,
-    load_config,
-    load_profile_json,
-    save_config,
-)
 
 __all__ = [
     "DEFAULT_TEMPLATE_GROUPS",
@@ -52,16 +49,18 @@ __all__ = [
 
 # ── 模型分析相关函数 ──────────────────────────────────────────────
 
+
 def parse_model_with_variant(model_str: str) -> Tuple[str, Optional[str]]:
     """解析 'model[variant]' 格式，返回 (model, variant)。
-    
+
     例如:
       "deepseek-v4-pro[max]" → ("deepseek-v4-pro", "max")
       "gemini-3-pro"          → ("gemini-3-pro", None)
     """
     import re
+
     stripped = model_str.strip()
-    match = re.match(r'^(.+?)\s*\[(\w+)\]\s*$', stripped)
+    match = re.match(r"^(.+?)\s*\[(\w+)\]\s*$", stripped)
     if match:
         return match.group(1).strip(), match.group(2).lower()
     return stripped, None
@@ -69,38 +68,50 @@ def parse_model_with_variant(model_str: str) -> Tuple[str, Optional[str]]:
 
 # ── 模板定义 ─────────────────────────────────────────────────────
 # 默认模板（内置），使用 MappingProxyType 保护不被意外修改
-DEFAULT_TEMPLATE_GROUPS: Any = types.MappingProxyType({
-    "主模型": frozenset({
-        ("agents", "sisyphus"),
-        ("agents", "hephaestus"),
-        ("agents", "prometheus"),
-        ("agents", "atlas"),
-    }),
-    "强模型": frozenset({
-        ("agents", "oracle"),
-        ("agents", "metis"),
-        ("agents", "momus"),
-        ("agents", "plan"),
-        ("categories", "ultrabrain"),
-        ("categories", "artistry"),
-    }),
-    "中模型": frozenset({
-        ("agents", "sisyphus-junior"),
-        ("categories", "deep"),
-        ("categories", "visual-engineering"),
-        ("categories", "writing"),
-        ("categories", "unspecified-high"),
-    }),
-    "弱模型": frozenset({
-        ("agents", "explore"),
-        ("agents", "librarian"),
-        ("categories", "quick"),
-        ("categories", "unspecified-low"),
-    }),
-    "多模态模型": frozenset({
-        ("agents", "multimodal-looker"),
-    }),
-})
+DEFAULT_TEMPLATE_GROUPS: Any = types.MappingProxyType(
+    {
+        "主模型": frozenset(
+            {
+                ("agents", "sisyphus"),
+                ("agents", "hephaestus"),
+                ("agents", "prometheus"),
+                ("agents", "atlas"),
+            }
+        ),
+        "强模型": frozenset(
+            {
+                ("agents", "oracle"),
+                ("agents", "metis"),
+                ("agents", "momus"),
+                ("agents", "plan"),
+                ("categories", "ultrabrain"),
+                ("categories", "artistry"),
+            }
+        ),
+        "中模型": frozenset(
+            {
+                ("agents", "sisyphus-junior"),
+                ("categories", "deep"),
+                ("categories", "visual-engineering"),
+                ("categories", "writing"),
+                ("categories", "unspecified-high"),
+            }
+        ),
+        "弱模型": frozenset(
+            {
+                ("agents", "explore"),
+                ("agents", "librarian"),
+                ("categories", "quick"),
+                ("categories", "unspecified-low"),
+            }
+        ),
+        "多模态模型": frozenset(
+            {
+                ("agents", "multimodal-looker"),
+            }
+        ),
+    }
+)
 
 
 def _template_to_json(template: Dict[str, set]) -> dict:
@@ -123,7 +134,7 @@ def load_template() -> Dict[str, set]:
     """加载模板：优先使用用户自定义模板，否则使用默认模板"""
     if TEMPLATE_FILE.exists():
         try:
-            with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
+            with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return _template_from_json(data)
         except (json.JSONDecodeError, IOError):
@@ -240,7 +251,7 @@ def get_template_summary(profile: dict) -> Tuple[Dict, Dict]:
 
 def print_type_summary(summary: Dict, title: str = None, current_models: Dict = None) -> None:
     """打印格式化的模型分类摘要。
-    
+
     current_models: {类型: (模型名, variant)} — 用于显示 variant 信息
     """
     if title:
@@ -275,7 +286,7 @@ def print_type_summary(summary: Dict, title: str = None, current_models: Dict = 
 
 def _format_fallback_item(item: Any) -> str:
     """格式化 fallback 链中的单个条目。
-    
+
     字符串条目直接返回；字典条目格式化为 'model [variant=xxx]'。
     """
     if isinstance(item, dict):
@@ -290,11 +301,11 @@ def _format_fallback_item(item: Any) -> str:
 def get_fallback_summary(fallback_data: FallbackData) -> Dict[str, List[str]]:
     """
     从 fallback 配置中提取每类的显示链。
-    
+
     参数:
         fallback_data: fallback 配置字典，格式如:
             {"主模型": {"fallback_models": ["model-a", ...]}, ...}
-    
+
     返回:
         {category_label: [model_strings]}
         每个 model_string 已格式化（字典条目显示为 model [variant=xxx]）
@@ -308,7 +319,7 @@ def get_fallback_summary(fallback_data: FallbackData) -> Dict[str, List[str]]:
 
 def print_fallback_summary(summary: Dict[str, List[str]], title: str = None) -> None:
     """打印格式化的 fallback 链摘要。
-    
+
     显示格式:
         主模型:
           fallback: model-a → model-b → model-c
@@ -326,14 +337,16 @@ def print_fallback_summary(summary: Dict[str, List[str]], title: str = None) -> 
         chain = summary[category]
         print(f"  {Colors.BOLD}{category}{Colors.NC}:")
         if chain:
-            chain_str = f" → ".join(chain)
+            chain_str = " → ".join(chain)
             print(f"    fallback: {Colors.CYAN}{chain_str}{Colors.NC}")
         else:
             print(f"    fallback: {Colors.GRAY}(none){Colors.NC}")
     print()
 
 
-def sync_profiles_after_template_change(old_template: Dict[str, set], new_template: Dict[str, set]) -> int:
+def sync_profiles_after_template_change(
+    old_template: Dict[str, set], new_template: Dict[str, set]
+) -> int:
     """同步所有 profiles 到新模板。返回更新的 profile 数量。"""
     config = load_config()
     updated = 0
@@ -434,7 +447,7 @@ def cmd_template(args: List[str]) -> None:
         if open_editor(TEMPLATE_FILE):
             if is_valid_json(TEMPLATE_FILE):
                 try:
-                    with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
+                    with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
                         new_data = json.load(f)
                     new_template = _template_from_json(new_data)
 

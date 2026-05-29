@@ -12,12 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .config_io import get_profile_path, load_config, load_profile_json, save_config
 from .constants import OMA_CONFIG
-from .config_io import load_config, save_config, load_profile_json, get_profile_path
-from .io_utils import _atomic_write_json
-from .version import _create_version_snapshot, _rotate_versions
-from .template import load_template
 from .display import *  # noqa: F403
+from .io_utils import _atomic_write_json
+from .template import load_template
+from .version import _create_version_snapshot, _rotate_versions
 
 
 def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
@@ -32,7 +32,7 @@ def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
     current = {}
     if OMA_CONFIG.exists():
         try:
-            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            with open(OMA_CONFIG, "r", encoding="utf-8") as f:
                 current = json.load(f)
         except (json.JSONDecodeError, IOError):
             print_warning("OMA 配置文件损坏，将使用新配置")
@@ -58,7 +58,7 @@ def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
     current: Dict[str, Any] = {}
     if OMA_CONFIG.exists():
         try:
-            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            with open(OMA_CONFIG, "r", encoding="utf-8") as f:
                 current = json.load(f)
         except (json.JSONDecodeError, IOError):
             print_warning("OMA 配置文件损坏，将使用新配置")
@@ -91,7 +91,7 @@ def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
 
 
 def open_editor(filepath: Path) -> bool:
-    editor = os.environ.get('EDITOR', os.environ.get('VISUAL', 'vim'))
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "vim"))
     try:
         result = subprocess.run([editor, str(filepath)], check=True)
         return result.returncode == 0
@@ -116,7 +116,7 @@ def check_current_unrecorded() -> None:
 
     print_warning("当前 OMA 配置文件未被记录")
     response = input("是否要记录当前配置文件? (y/N): ").strip().lower()
-    if response == 'y':
+    if response == "y":
         name = input("请输入配置文件名称: ").strip()
         if not name:
             print_error("名称不能为空")
@@ -127,10 +127,7 @@ def check_current_unrecorded() -> None:
 
         shutil.copy2(OMA_CONFIG, get_profile_path(name))
         config["current"] = name
-        config["profiles"][name] = {
-            "created": datetime.now().isoformat(),
-            "description": ""
-        }
+        config["profiles"][name] = {"created": datetime.now().isoformat(), "description": ""}
         save_config(config)
         print_success(f"已记录当前配置文件为 '{name}'")
 

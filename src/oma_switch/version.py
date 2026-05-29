@@ -12,11 +12,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-from .types import VersionMetadata
-
 from .constants import CONFIG_DIR
-from .display import Colors, print_color, print_dim, print_error, print_info, print_success, print_warning
+from .display import (
+    Colors,
+    print_color,
+    print_dim,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
+)
 from .io_utils import _atomic_write_json
+from .types import VersionMetadata
 
 __all__ = [
     "_get_version_dir",
@@ -44,7 +51,9 @@ def _get_version_dir(filepath: Path) -> Path:
     return version_dir
 
 
-def _create_version_metadata(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> VersionMetadata:
+def _create_version_metadata(
+    filepath: Path, operation: str, command_args: Optional[List[str]] = None
+) -> VersionMetadata:
     """创建版本元数据字典
 
     参数：
@@ -141,7 +150,7 @@ def _load_version_metadata(version_path: Path) -> Optional[VersionMetadata]:
         return None
 
     try:
-        with open(version_path, 'r', encoding='utf-8') as f:
+        with open(version_path, "r", encoding="utf-8") as f:
             data: Dict[str, Any] = json.load(f)
     except (json.JSONDecodeError, IOError):
         return None
@@ -152,7 +161,9 @@ def _load_version_metadata(version_path: Path) -> Optional[VersionMetadata]:
     return cast(VersionMetadata, data)
 
 
-def _create_version_snapshot(filepath: Path, operation: str, command_args: Optional[List[str]] = None) -> None:
+def _create_version_snapshot(
+    filepath: Path, operation: str, command_args: Optional[List[str]] = None
+) -> None:
     """在写入前创建版本快照"""
     if not filepath.exists():
         return
@@ -168,7 +179,7 @@ def _create_version_snapshot(filepath: Path, operation: str, command_args: Optio
 
     meta = _create_version_metadata(filepath, operation, command_args)
     meta_path = version_dir / f"{stem}.{ts_short}.meta.json"
-    with open(meta_path, 'w', encoding='utf-8') as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
 
 
@@ -179,7 +190,8 @@ def _rotate_versions(filepath: Path, max_versions: int = 10) -> None:
     suffix = filepath.suffix or ".json"
 
     version_files = [
-        p for p in version_dir.glob(f"{stem}.*{suffix}")
+        p
+        for p in version_dir.glob(f"{stem}.*{suffix}")
         if not p.name.endswith(".meta.json") and p.is_file()
     ]
     if len(version_files) <= max_versions:
@@ -204,7 +216,8 @@ def _list_versions(filepath: Path) -> List[VersionMetadata]:
     suffix = filepath.suffix or ".json"
 
     version_files = [
-        p for p in version_dir.glob(f"{stem}.*{suffix}")
+        p
+        for p in version_dir.glob(f"{stem}.*{suffix}")
         if not p.name.endswith(".meta.json") and p.is_file()
     ]
 
@@ -216,14 +229,18 @@ def _list_versions(filepath: Path) -> List[VersionMetadata]:
         meta_file = vf.with_suffix(".meta.json")
         meta = _load_version_metadata(meta_file)
 
-        versions.append({
-            "timestamp": meta.get("timestamp", timestamp) if meta else timestamp,
-            "file_path": str(vf),
-            "operation": meta.get("operation", "") if meta else "",
-            "command_args": meta.get("command_args", []) if meta else [],
-            "file_size": meta.get("file_size", vf.stat().st_size if vf.exists() else 0) if meta else (vf.stat().st_size if vf.exists() else 0),
-            "file_hash": meta.get("file_hash", "") if meta else "",
-        })
+        versions.append(
+            {
+                "timestamp": meta.get("timestamp", timestamp) if meta else timestamp,
+                "file_path": str(vf),
+                "operation": meta.get("operation", "") if meta else "",
+                "command_args": meta.get("command_args", []) if meta else [],
+                "file_size": meta.get("file_size", vf.stat().st_size if vf.exists() else 0)
+                if meta
+                else (vf.stat().st_size if vf.exists() else 0),
+                "file_hash": meta.get("file_hash", "") if meta else "",
+            }
+        )
 
     # 按时间戳降序排序（最新在前）
     versions.sort(key=lambda v: v["timestamp"], reverse=True)
@@ -238,7 +255,7 @@ def _recover_from_versions(filepath: Path) -> Optional[Dict[str, Any]]:
         if not ver_path.exists():
             continue
         try:
-            with open(ver_path, 'r', encoding='utf-8') as f:
+            with open(ver_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return data
         except (json.JSONDecodeError, IOError):
@@ -265,8 +282,7 @@ def _show_restore_list() -> None:
     print()
     for file_dir in file_dirs:
         version_files = [
-            p for p in file_dir.iterdir()
-            if p.is_file() and not p.name.endswith(".meta.json")
+            p for p in file_dir.iterdir() if p.is_file() and not p.name.endswith(".meta.json")
         ]
         count = len(version_files)
         if count > 0:
@@ -333,7 +349,7 @@ def _restore_version(filepath: Path, version_id: str) -> bool:
         return False
 
     try:
-        with open(ver_path, 'r', encoding='utf-8') as f:
+        with open(ver_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, IOError) as e:
         print_error(f"版本文件读取失败: {e}")
@@ -419,7 +435,7 @@ def cmd_restore(args: List[str]) -> None:
                     meta_files = sorted(d.glob("*.meta.json"), reverse=True)
                     for meta_file in meta_files:
                         try:
-                            with open(meta_file, 'r', encoding='utf-8') as f:
+                            with open(meta_file, "r", encoding="utf-8") as f:
                                 meta = json.load(f)
                             if "file_path" in meta:
                                 filepath = Path(meta["file_path"])

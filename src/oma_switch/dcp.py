@@ -9,10 +9,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from .types import OmaSwitchConfig, ProfileMeta
-
-from .constants import DCP_CONFIG_FILE, OPENCODE_DIR
 from .config_io import load_config, save_config
+from .constants import DCP_CONFIG_FILE, OPENCODE_DIR
 from .display import (
     Colors,
     print_color,
@@ -23,6 +21,7 @@ from .display import (
     print_warning,
 )
 from .io_utils import _atomic_write_json
+from .types import OmaSwitchConfig, ProfileMeta
 
 __all__ = [
     "get_dcp_config",
@@ -31,7 +30,6 @@ __all__ = [
     "_get_profile_dcp_enabled",
     "_set_profile_dcp_enabled",
     "_apply_profile_dcp",
-
     "_dcp_show",
     "_dcp_edit",
     "_dcp_set",
@@ -46,12 +44,17 @@ def get_dcp_config() -> Dict[str, Any]:
     if not DCP_CONFIG_FILE.exists():
         return {"enabled": False}
     try:
-        with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        with open(DCP_CONFIG_FILE, "r", encoding="utf-8") as f:
             content = f.read()
             # Remove // comments but skip quoted strings (preserves URLs like http://...)
-            content = re.sub(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|//[^\n]*', r'\1', content)
+            content = re.sub(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|//[^\n]*', r"\1", content)
             # Remove /* */ block comments but skip quoted strings
-            content = re.sub(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|/\*.*?\*/', r'\1', content, flags=re.DOTALL)
+            content = re.sub(
+                r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')|/\*.*?\*/',
+                r"\1",
+                content,
+                flags=re.DOTALL,
+            )
             return json.loads(content)
     except (json.JSONDecodeError, IOError):
         return {"enabled": False}
@@ -70,18 +73,18 @@ def update_dcp_state(enable: bool) -> None:
 
     if not DCP_CONFIG_FILE.exists():
         OPENCODE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        with open(DCP_CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write(f'{{\n  "enabled": {value}\n}}\n')
         print_info(f"DCP 插件已{state}")
         return
 
-    with open(DCP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    with open(DCP_CONFIG_FILE, "r", encoding="utf-8") as f:
         content = f.read()
 
     # 替换 "enabled": true/false，保留文件其余内容不变
     new_content, count = re.subn(
         r'("enabled"\s*:\s*)(true|false)',
-        rf'\g<1>{value}',
+        rf"\g<1>{value}",
         content,
         count=1,
     )
@@ -89,14 +92,14 @@ def update_dcp_state(enable: bool) -> None:
     if count == 0:
         # enabled 字段不存在，尝试在第一个 { 后插入
         new_content, count = re.subn(
-            r'(\{)',
+            r"(\{)",
             rf'{{\n  "enabled": {value},',
             content,
             count=1,
         )
 
     if count > 0:
-        with open(DCP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        with open(DCP_CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write(new_content)
     else:
         print_error("无法更新 DCP 配置：文件格式异常")
@@ -121,7 +124,6 @@ def _apply_profile_dcp(config: OmaSwitchConfig, name: str) -> None:
     profile_meta = config.get("profiles", {}).get(name, {})
     dcp_enabled = _get_profile_dcp_enabled(profile_meta)
     update_dcp_state(dcp_enabled)
-
 
 
 # ── 完整 DCP 管理命令 ─────────────────────────────────────────────
@@ -196,7 +198,10 @@ def _dcp_show() -> None:
     print()
 
     print_dim(f"DCP 配置文件: {DCP_CONFIG_FILE}")
-    print_dim(f"提示: 使用 'oma-switch dcp edit' 交互式修改，或 'oma-switch dcp set <key> <value>' 快速修改")
+    print_dim(
+        "提示: 使用 'oma-switch dcp edit' 交互式修改，"
+        "或 'oma-switch dcp set <key> <value>' 快速修改"
+    )
 
 
 def _dcp_edit() -> None:
@@ -315,9 +320,7 @@ def _dcp_set(args: List[str]) -> None:
 
     parent[last_key] = parsed_value
     save_dcp_config(config)
-    print_success(
-        f"已设置 DCP 参数: {key_path} = {json.dumps(parsed_value, ensure_ascii=False)}"
-    )
+    print_success(f"已设置 DCP 参数: {key_path} = {json.dumps(parsed_value, ensure_ascii=False)}")
 
 
 def _dcp_bind_show(name: Optional[str] = None) -> None:
@@ -336,9 +339,7 @@ def _dcp_bind_show(name: Optional[str] = None) -> None:
     profile_meta = oma_config["profiles"][name]
     dcp_enabled = _get_profile_dcp_enabled(profile_meta)
     bind_str = (
-        f"{Colors.GREEN}✓ 启用{Colors.NC}"
-        if dcp_enabled
-        else f"{Colors.RED}✗ 禁用{Colors.NC}"
+        f"{Colors.GREEN}✓ 启用{Colors.NC}" if dcp_enabled else f"{Colors.RED}✗ 禁用{Colors.NC}"
     )
     print_info(f"配置文件 '{name}' 的 DCP 绑定: {bind_str}")
 

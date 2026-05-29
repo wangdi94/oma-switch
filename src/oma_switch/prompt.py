@@ -6,14 +6,13 @@ Contains interactive prompt functions and generation functions.
 """
 
 import copy
-from typing import Any, Dict, List, Optional, Tuple
-
-from .types import FallbackData
+from typing import Dict, List, Optional, Tuple
 
 from .display import Colors, print_warning
 from .history import get_category_frequency, get_model_frequency, record_model_usage
 from .models import collect_models_enriched, fuzzy_match_models
 from .template import DEFAULT_TEMPLATE_GROUPS, load_template, parse_model_with_variant
+from .types import FallbackData
 
 
 def prompt_select_model(
@@ -46,7 +45,7 @@ def prompt_select_model(
         return (None, None)
 
     def _display_models(models: List[Tuple[str, Optional[str], int]]) -> None:
-        print(f"    可用模型:")
+        print("    可用模型:")
         for i, (m, v, _f) in enumerate(models, 1):
             marker = " (当前)" if m == current_model else ""
             variant_str = f" [{v}]" if v else ""
@@ -123,7 +122,8 @@ def prompt_select_fallback_models(
 
     current 可以是字符串列表或包含 variant 的字典列表（向后兼容）。
     用户可以通过逗号分隔的编号或模型名选择多个模型，支持 model[variant] 格式。
-    空输入在有当前值时保留当前链，在无当前值时清空链（返回 []）。最多选择 MAX_FALLBACK_MODELS 个模型。
+    空输入在有当前值时保留当前链，在无当前值时清空链（返回 []）。
+    最多选择 MAX_FALLBACK_MODELS 个模型。
     模型按分类分组展示，支持搜索过滤，记录使用历史。
     """
     if current is None:
@@ -164,8 +164,7 @@ def prompt_select_fallback_models(
 
         for category in DEFAULT_TEMPLATE_GROUPS:
             cat_models = [
-                (m, v, f) for m, v, f in models_enriched
-                if get_category_frequency(m, category) > 0
+                (m, v, f) for m, v, f in models_enriched if get_category_frequency(m, category) > 0
             ]
             if cat_models:
                 print(f"      {Colors.GRAY}── {category} ──{Colors.NC}")
@@ -177,10 +176,7 @@ def prompt_select_fallback_models(
                     categorized_set.add(model)
                     idx += 1
 
-        other_models = [
-            (m, v, f) for m, v, f in models_enriched
-            if m not in categorized_set
-        ]
+        other_models = [(m, v, f) for m, v, f in models_enriched if m not in categorized_set]
         if other_models:
             print(f"      {Colors.GRAY}── 其他 ──{Colors.NC}")
             for model, variant, _freq in other_models:
@@ -225,13 +221,11 @@ def prompt_select_fallback_models(
 
     if current:
         prompt_text = (
-            f"  请输入{type_label} fallback 模型"
-            f"（逗号分隔的编号/模型名[variant]，留空=保留当前）: "
+            f"  请输入{type_label} fallback 模型（逗号分隔的编号/模型名[variant]，留空=保留当前）: "
         )
     else:
         prompt_text = (
-            f"  请输入{type_label} fallback 模型"
-            f"（逗号分隔的编号/模型名[variant]，留空=清空）: "
+            f"  请输入{type_label} fallback 模型（逗号分隔的编号/模型名[variant]，留空=清空）: "
         )
 
     while True:
@@ -256,7 +250,7 @@ def prompt_select_fallback_models(
                 filtered = [(m, v, f) for m, v, f in enriched if m in match_set]
                 filtered_indexed = _display_grouped(filtered)
 
-                inner = input(f"  请选择（逗号分隔编号，留空=取消搜索）: ").strip()
+                inner = input("  请选择（逗号分隔编号，留空=取消搜索）: ").strip()
                 if not inner:
                     indexed_models = _display_grouped(enriched)
                     continue
@@ -311,7 +305,6 @@ def generate_fallback_from_types(
     按模板结构输出: {类型标签: {"fallback_models": [...]}}
     未指定的类型默认为 {"fallback_models": []}。
     """
-    from .types import FallbackCategory
     tpl = load_template()
     result: FallbackData = {}
     for type_label in tpl:

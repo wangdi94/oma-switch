@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """OMA 配置文件切换工具 - 管理 opencode 的 oh-my-openagent.json 配置"""
+
 from .__init__ import __version__
-from .constants import *  # noqa: F403
-from .display import *  # noqa: F403,E402
-from .io_utils import _atomic_write_json  # noqa: F401
-from .version import *  # noqa: F403,E402
-from .config_io import *  # noqa: F403,E402
-from .history import *  # noqa: F403
-from .template import *  # noqa: F403
-from .dcp import *  # noqa: F403
-from .models import *  # noqa: F403
-from .prompt import *  # noqa: F403
 from .cli_helpers import *  # noqa: F403,F401
 from .commands import *  # noqa: F403,F401
+from .config_io import *  # noqa: F403,E402
+from .constants import *  # noqa: F403
+from .dcp import *  # noqa: F403
+from .display import *  # noqa: F403,E402
 from .fallback_cmds import *  # noqa: F403
+from .history import *  # noqa: F403
+from .io_utils import _atomic_write_json  # noqa: F401
+from .models import *  # noqa: F403
+from .prompt import *  # noqa: F403
+from .template import *  # noqa: F403
+from .version import *  # noqa: F403,E402
 
 
 def cmd_help() -> None:
@@ -79,11 +80,21 @@ def main() -> None:
         sys.exit(0)
     command, args = sys.argv[1], sys.argv[2:]
     commands = {
-        "add": cmd_add, "rm": cmd_rm, "edit": cmd_edit, "create": cmd_create,
-        "view": cmd_view, "rename": cmd_rename, "list": cmd_list,
-        "switch": cmd_switch, "diff": cmd_diff, "backup": cmd_backup,
-        "template": cmd_template, "dcp": cmd_dcp,
-        "fallback": cmd_fallback, "restore": cmd_restore, "help": cmd_help,
+        "add": cmd_add,
+        "rm": cmd_rm,
+        "edit": cmd_edit,
+        "create": cmd_create,
+        "view": cmd_view,
+        "rename": cmd_rename,
+        "list": cmd_list,
+        "switch": cmd_switch,
+        "diff": cmd_diff,
+        "backup": cmd_backup,
+        "template": cmd_template,
+        "dcp": cmd_dcp,
+        "fallback": cmd_fallback,
+        "restore": cmd_restore,
+        "help": cmd_help,
     }
     if command in commands:
         commands[command]() if command == "help" else commands[command](args)

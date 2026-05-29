@@ -3,7 +3,7 @@
 Display utilities: color output, print helpers, directory setup.
 """
 
-from .constants import CONFIG_DIR, PROFILES_DIR, FALLBACKS_DIR
+from .constants import CONFIG_DIR, FALLBACKS_DIR, PROFILES_DIR
 
 
 class Colors:

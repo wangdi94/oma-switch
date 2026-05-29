@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-def _atomic_write_json(filepath: Path, data: Dict[str, Any], indent: int = 2, ensure_ascii: bool = False) -> None:
+def _atomic_write_json(
+    filepath: Path, data: Dict[str, Any], indent: int = 2, ensure_ascii: bool = False
+) -> None:
     """原子性写入 JSON 文件：写入临时文件 → fsync → 原子替换目标文件。"""
     tmp_path: Optional[Path] = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode='w', dir=filepath.parent, suffix='.tmp', delete=False, encoding='utf-8'
+            mode="w", dir=filepath.parent, suffix=".tmp", delete=False, encoding="utf-8"
         ) as tmp_file:
             tmp_path = Path(tmp_file.name)
             json.dump(data, tmp_file, indent=indent, ensure_ascii=ensure_ascii)

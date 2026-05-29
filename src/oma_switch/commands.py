@@ -11,11 +11,15 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, cast
 
-from .types import OmaSwitchConfig
-
-from .constants import OMA_CONFIG, PROFILES_DIR
+from .cli_helpers import (
+    get_profile_or_current,
+    merge_fallback_to_oma_config,
+    merge_to_oma_config,
+    open_editor,
+    parse_flag,
+)
 from .config_io import (
     get_current_fallback,
     get_profile_path,
@@ -25,22 +29,15 @@ from .config_io import (
     load_profile_json,
     save_config,
 )
-from .cli_helpers import (
-    merge_fallback_to_oma_config,
-    merge_to_oma_config,
-    open_editor,
-    parse_flag,
-    get_profile_or_current,
-)
+from .constants import OMA_CONFIG, PROFILES_DIR
+from .dcp import _apply_profile_dcp, _get_profile_dcp_enabled
 from .display import (
     Colors,
-    print_color,
     print_error,
     print_info,
     print_success,
     print_warning,
 )
-from .dcp import _apply_profile_dcp, _get_profile_dcp_enabled
 from .io_utils import _atomic_write_json
 from .models import collect_all_models
 from .prompt import generate_profile_from_types, prompt_select_model
@@ -50,8 +47,8 @@ from .template import (
     load_template,
     print_type_summary,
 )
+from .types import OmaSwitchConfig
 from .version import _create_version_snapshot, _rotate_versions
-
 
 __all__ = [
     "cmd_add",
@@ -124,7 +121,7 @@ def cmd_rm(args: List[str]) -> None:
         sys.exit(1)
 
     response = input(f"确定要删除配置文件 '{name}' 吗? (y/N): ").strip().lower()
-    if response != 'y':
+    if response != "y":
         print_info("已取消")
         return
 
@@ -224,7 +221,9 @@ def cmd_edit(args: List[str]) -> None:
     new_profile = generate_profile_from_types(profile, model_map)
 
     if not check_template_profile(new_profile):
-        print_error("编辑后的配置不满足模板约束（请确保同一分组内所有 agent/category 使用相同模型）")
+        print_error(
+            "编辑后的配置不满足模板约束（请确保同一分组内所有 agent/category 使用相同模型）"
+        )
         return
 
     _create_version_snapshot(profile_path, "cmd_edit")
@@ -272,7 +271,7 @@ def cmd_create(args: List[str]) -> None:
         print_error("当前 OMA 配置文件不存在")
         sys.exit(1)
 
-    with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+    with open(OMA_CONFIG, "r", encoding="utf-8") as f:
         current_profile = json.load(f)
 
     if has_detail:
@@ -337,14 +336,13 @@ def cmd_create(args: List[str]) -> None:
 
 def cmd_view(args: List[str]) -> None:
     """
-    查看配置文件。
+        查看配置文件。
 
-快速模式（默认）：按模板分组显示
-   详细模式（--detail）：显示完整 JSON（原行为）
+    快速模式（默认）：按模板分组显示
+       详细模式（--detail）：显示完整 JSON（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
 
-    config = load_config()
     name, profile, err = None, None, None
 
     if remaining_args:
@@ -359,7 +357,7 @@ def cmd_view(args: List[str]) -> None:
         elif OMA_CONFIG.exists():
             print_warning(err)
             print_info("当前 OMA 配置文件内容:")
-            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+            with open(OMA_CONFIG, "r", encoding="utf-8") as f:
                 print(f.read())
         else:
             print_error(err)
@@ -371,7 +369,9 @@ def cmd_view(args: List[str]) -> None:
         oma_config = load_config()
         profile_meta = oma_config.get("profiles", {}).get(name, {})
         dcp_enabled = _get_profile_dcp_enabled(profile_meta)
-        dcp_str = f"{Colors.GREEN}✓ 启用{Colors.NC}" if dcp_enabled else f"{Colors.RED}✗ 禁用{Colors.NC}"
+        dcp_str = (
+            f"{Colors.GREEN}✓ 启用{Colors.NC}" if dcp_enabled else f"{Colors.RED}✗ 禁用{Colors.NC}"
+        )
         print(f"  {Colors.BOLD}DCP{Colors.NC}:           {dcp_str}")
         print()
         return
@@ -381,7 +381,7 @@ def cmd_view(args: List[str]) -> None:
 
     print_info(f"配置文件 '{name}' 的内容:")
     profile_path = get_profile_path(name)
-    with open(profile_path, 'r', encoding='utf-8') as f:
+    with open(profile_path, "r", encoding="utf-8") as f:
         print(f.read())
 
 
@@ -459,7 +459,7 @@ def cmd_list(args: List[str]) -> None:
             print(f"{color}  [{dcp_icon}] {name}{marker}{Colors.NC}")
             for type_label in load_template():
                 model, variant = current_models.get(type_label, ("—", None))
-                variant_str = f' [variant={variant}]' if variant else ''
+                variant_str = f" [variant={variant}]" if variant else ""
                 print(f"     {type_label}: {Colors.CYAN}{model}{Colors.NC}{variant_str}")
         else:
             print(f"{color}  [{dcp_icon}] {name}{marker}{Colors.NC}")
@@ -493,10 +493,10 @@ def cmd_switch(args: List[str]) -> None:
         sys.exit(1)
 
     if OMA_CONFIG.exists():
-        backup_path = OMA_CONFIG.with_suffix('.json.backup')
+        backup_path = OMA_CONFIG.with_suffix(".json.backup")
         if backup_path.exists():
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            archived = OMA_CONFIG.with_suffix(f'.json.backup.{ts}')
+            archived = OMA_CONFIG.with_suffix(f".json.backup.{ts}")
             shutil.move(str(backup_path), str(archived))
         shutil.copy2(OMA_CONFIG, backup_path)
 
@@ -519,10 +519,10 @@ def cmd_switch(args: List[str]) -> None:
 
 def cmd_diff(args: List[str]) -> None:
     """
-    比较配置文件差异。
+        比较配置文件差异。
 
-快速模式（默认）：比较各分类模型的差异
-   详细模式（--detail）：系统 diff 命令（原行为）
+    快速模式（默认）：比较各分类模型的差异
+       详细模式（--detail）：系统 diff 命令（原行为）
     """
     has_detail, remaining_args = parse_flag(args, "--detail")
 
@@ -557,7 +557,7 @@ def cmd_diff(args: List[str]) -> None:
         if not OMA_CONFIG.exists():
             print_error("当前 OMA 配置文件不存在")
             sys.exit(1)
-        with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+        with open(OMA_CONFIG, "r", encoding="utf-8") as f:
             profile2 = json.load(f)
 
     if not has_detail and check_template_profile(profile1) and check_template_profile(profile2):
@@ -577,7 +577,9 @@ def cmd_diff(args: List[str]) -> None:
                 status = f"{Colors.YELLOW}不同{Colors.NC}"
 
             print(f"  {Colors.BOLD}{t}{Colors.NC}: {status}")
-            print(f"    {name1}: {Colors.CYAN}{m1}{Colors.NC}{' [variant=' + v1 + ']' if v1 else ''}")
+            print(
+                f"    {name1}: {Colors.CYAN}{m1}{Colors.NC}{' [variant=' + v1 + ']' if v1 else ''}"
+            )
 
             if t in summary1:
                 agent_keys1 = [k for s, k in summary1[t].get(m1, []) if s == "agents"]
@@ -590,7 +592,9 @@ def cmd_diff(args: List[str]) -> None:
                 for p in parts1:
                     print(f"      {p}")
 
-            print(f"    {label2}: {Colors.CYAN}{m2}{Colors.NC}{' [variant=' + v2 + ']' if v2 else ''}")
+            print(
+                f"    {label2}: {Colors.CYAN}{m2}{Colors.NC}{' [variant=' + v2 + ']' if v2 else ''}"
+            )
             if t in summary2:
                 agent_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "agents"]
                 cat_keys2 = [k for s, k in summary2[t].get(m2, []) if s == "categories"]
@@ -621,9 +625,9 @@ def cmd_diff(args: List[str]) -> None:
         print_info(f"比较 '{name1}' 和当前配置:")
 
     try:
-        subprocess.run(['diff', '--color=auto', str(path1), str(path2)])
+        subprocess.run(["diff", "--color=auto", str(path1), str(path2)])
     except FileNotFoundError:
-        with open(path1, 'r') as f1, open(path2, 'r') as f2:
+        with open(path1, "r") as f1, open(path2, "r") as f2:
             lines1 = f1.readlines()
             lines2 = f2.readlines()
         max_len = max(len(lines1), len(lines2))

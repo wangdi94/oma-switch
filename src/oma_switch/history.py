@@ -29,7 +29,7 @@ def load_history() -> Dict[str, Any]:
     if not HISTORY_FILE.exists():
         return {"models": {}}
     try:
-        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
         print_warning("历史记录文件损坏，将重新创建")

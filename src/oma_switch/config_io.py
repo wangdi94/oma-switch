@@ -9,11 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-from .types import FallbackData, OmaSwitchConfig
-
 from .constants import CONFIG_FILE, FALLBACKS_DIR, PROFILES_DIR
 from .display import print_error, print_warning
 from .io_utils import _atomic_write_json
+from .types import FallbackData, OmaSwitchConfig
 from .version import _create_version_snapshot, _recover_from_versions, _rotate_versions
 
 
@@ -30,7 +29,7 @@ def _load_json_with_recovery(filepath: Path, display_name: str) -> Optional[Dict
     if not filepath.exists():
         return None
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -93,7 +92,7 @@ def get_profile_path(name: str) -> Path:
 
 def is_valid_json(filepath: Path) -> bool:
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             json.load(f)
         return True
     except (json.JSONDecodeError, FileNotFoundError):
