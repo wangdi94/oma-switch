@@ -93,11 +93,13 @@ MOCK_TEMPLATE = {
 }
 
 MOCK_MODELS = ["model-a", "model-b", "model-c"]
+MOCK_ENRICHED = [(m, None, 0) for m in MOCK_MODELS]
 
 
+@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
 @patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
 @patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
-def test_create(mock_template, mock_collect, monkeypatch, capsys):
+def test_create(mock_template, mock_collect, mock_enriched, monkeypatch, capsys):
     """Create a fallback config with mocked inputs, verify file and content."""
     inputs = iter(["1", "1", "1", "1", "1"])
     monkeypatch.setattr("builtins.input", lambda _: next(inputs))
@@ -442,9 +444,10 @@ EDIT_INITIAL_DATA = {
 }
 
 
+@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
 @patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
 @patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
-def test_edit_current(mock_template, mock_collect, tmp_path, monkeypatch, capsys):
+def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys):
     """编辑当前 fallback → 文件已更新 + OMA 配置同步"""
     fake_config_file = tmp_path / "config" / "config.json"
 
@@ -479,9 +482,10 @@ def test_edit_current(mock_template, mock_collect, tmp_path, monkeypatch, capsys
     assert "已同步到 OMA 配置文件" in out
 
 
+@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
 @patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
 @patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
-def test_edit_non_current(mock_template, mock_collect, tmp_path, monkeypatch, capsys):
+def test_edit_non_current(mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys):
     """编辑非当前 fallback → 文件已更新 + OMA 配置不变"""
     fake_config_file = tmp_path / "config" / "config.json"
 

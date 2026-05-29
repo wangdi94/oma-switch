@@ -333,3 +333,134 @@ class TestCategoryAwareScores:
         """不在历史中的模型评分为 0.0。"""
         scores = cli.get_category_aware_scores(["unknown-model"], "主模型")
         assert scores["unknown-model"] == 0.0
+
+
+# ---------- prompt_select_model ----------
+
+
+class TestPromptSelectModel:
+    def test_prompt_select_by_number(self, profile_env, history_env, capsys):
+        """输入编号选择模型。"""
+        with patch("builtins.input", return_value="1"):
+            model, variant = cli.prompt_select_model("主模型", [])
+
+        assert model == "claude-sonnet"
+        assert variant is None
+
+    def test_prompt_shows_variant_in_list(self, profile_env, history_env, capsys):
+        """列表中显示变体标注。"""
+        with patch("builtins.input", return_value="1"):
+            cli.prompt_select_model("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "[max]" in output
+
+    def test_prompt_records_usage_on_select(self, profile_env, history_env):
+        """选择模型后记录使用历史。"""
+        with patch("builtins.input", return_value="1"):
+            model, _ = cli.prompt_select_model("主模型", [])
+
+        history = cli.load_history()
+        assert model in history.get("models", {})
+        assert history["models"][model]["count"] >= 1
+        assert history["models"][model]["categories"].get("主模型", 0) >= 1
+
+    def test_prompt_manual_variant_input(self, profile_env, history_env):
+        """手动输入 model[variant] 格式。"""
+        with patch("builtins.input", return_value="my-model[max]"):
+            model, variant = cli.prompt_select_model("主模型", [])
+
+        assert model == "my-model"
+        assert variant == "max"
+
+    def test_prompt_search_filter(self, profile_env, history_env, capsys):
+        """搜索输入过滤模型列表，然后选择。"""
+        with patch("builtins.input", side_effect=["claude", "1"]):
+            model, variant = cli.prompt_select_model("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "搜索 'claude' 的结果" in output
+        assert model == "claude-sonnet"
+
+    def test_prompt_empty_model_list(self, isolated_config_dir, history_env, monkeypatch, capsys):
+        """无可用模型时返回 (None, None)。"""
+        monkeypatch.setattr(cli, "OMA_CONFIG", isolated_config_dir / "nonexistent.json")
+        monkeypatch.setattr(cli, "PROFILES_DIR", isolated_config_dir / "empty_profiles")
+        monkeypatch.setattr(cli, "FALLBACKS_DIR", isolated_config_dir / "empty_fallbacks")
+        model, variant = cli.prompt_select_model("主模型", [])
+
+        assert model is None
+        assert variant is None
+        output = capsys.readouterr().out
+        assert "当前无可用模型" in output
+
+
+# ---------- prompt_select_fallback_models ----------
+
+
+class TestPromptSelectFallbackModels:
+    def test_fallback_prompt_grouped_display(self, profile_env, fallback_env, history_env, capsys):
+        """输出包含分类分组标题。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+        cli.record_model_usage("model-a", category="主模型")
+
+        with patch("builtins.input", return_value="1"):
+            cli.prompt_select_fallback_models("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "── 主模型 ──" in output
+
+    def test_fallback_prompt_remembers_last(self, profile_env, fallback_env, history_env, capsys):
+        """上次使用频率最高的模型标记 (上次)。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("claude-sonnet", category="主模型")
+
+        with patch("builtins.input", return_value="1"):
+            cli.prompt_select_fallback_models("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "(上次)" in output
+
+    def test_fallback_prompt_search_filter(self, profile_env, fallback_env, history_env, capsys):
+        """单个非数字输入触发搜索过滤。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+        cli.record_model_usage("claude-sonnet", category="强模型")
+
+        with patch("builtins.input", side_effect=["gpt", "1"]):
+            result = cli.prompt_select_fallback_models("主模型", [])
+
+        output = capsys.readouterr().out
+        assert "搜索 'gpt' 的结果" in output
+        assert any(
+            (isinstance(r, str) and "gpt-4o" in r) or
+            (isinstance(r, dict) and r.get("model") == "gpt-4o")
+            for r in result
+        )
+
+    def test_fallback_prompt_records_usage(self, profile_env, fallback_env, history_env):
+        """选择后调用 record_model_usage 记录 fallback 类别。"""
+        cli.record_model_usage("gpt-4o", category="主模型")
+
+        with patch("builtins.input", return_value="1"):
+            result = cli.prompt_select_fallback_models("主模型", [])
+
+        assert len(result) >= 1
+        history = cli.load_history()
+        for item in result:
+            model = item.get("model", item) if isinstance(item, dict) else item
+            assert history["models"][model]["categories"].get("fallback", 0) >= 1
+
+    def test_fallback_prompt_max_limit(self, profile_env, fallback_env, history_env, capsys):
+        """选择超过 5 个模型时截断并输出警告。"""
+        for i in range(6):
+            cli.record_model_usage(f"extra-model-{i}", category="主模型")
+
+        with patch("builtins.input", return_value="1,2,3,4,5,6"):
+            result = cli.prompt_select_fallback_models("主模型", [])
+
+        assert len(result) == 5
+        output = capsys.readouterr().out
+        assert "最多只能选择 5 个" in output

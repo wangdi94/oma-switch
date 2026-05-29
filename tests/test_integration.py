@@ -215,6 +215,7 @@ def test_edit_fallback_updates_oma(monkeypatch, capsys):
     """Switch fallback → edit fallback → verify OMA config updated."""
     monkeypatch.setattr(cli, "load_template", lambda: TEST_TEMPLATE)
     monkeypatch.setattr(cli, "collect_all_models", lambda: ["model-a", "model-b", "model-c"])
+    monkeypatch.setattr(cli, "collect_models_enriched", lambda cat=None: [("model-a", None, 0), ("model-b", None, 0), ("model-c", None, 0)])
 
     # Setup: create fallback, switch it, create OMA config
     fallback_data = _make_fallback("model-a", "model-b")
