@@ -15,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
+import oma_switch.version as version_mod
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -46,6 +47,9 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
 
+    # Also patch version module's CONFIG_DIR since version functions now live there
+    monkeypatch.setattr(version_mod, "CONFIG_DIR", fake_config_dir)
+
     return fake_home
 
 
@@ -62,7 +66,8 @@ def mock_incrementing_datetime():
             counter[0] += 1
             return result
 
-    with patch.object(cli, "datetime", _MockDatetime):
+    with patch.object(cli, "datetime", _MockDatetime), \
+         patch.object(version_mod, "datetime", _MockDatetime):
         yield
 
 
