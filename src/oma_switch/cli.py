@@ -10,6 +10,7 @@ OMA (Oh-My-Agent) 配置文件切换工具
 import json
 import os
 import re
+import readline  # 启用 input() 的行编辑功能（方向键、历史记录等）
 import sys
 import copy
 import shutil
