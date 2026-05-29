@@ -705,7 +705,7 @@ def print_fallback_summary(summary: Dict[str, List[str]], title: str = None) -> 
 
 
 def collect_all_models() -> List[str]:
-    """从所有 profile 和当前 OMA 配置中提取所有不重复的模型名"""
+    """从所有 profile、当前 OMA 配置和 fallback 配置中提取所有不重复的模型名"""
     models = set()
 
     if PROFILES_DIR.exists():
@@ -717,8 +717,8 @@ def collect_all_models() -> List[str]:
                     for value in profile.get(section, {}).values():
                         if isinstance(value, dict) and "model" in value:
                             models.add(value["model"])
-            except (json.JSONDecodeError, IOError):
-                pass
+            except (json.JSONDecodeError, IOError) as e:
+                print_warning(f"读取配置文件 {f.name} 失败: {e}")
 
     if OMA_CONFIG.exists():
         try:
@@ -728,10 +728,129 @@ def collect_all_models() -> List[str]:
                 for value in profile.get(section, {}).values():
                     if isinstance(value, dict) and "model" in value:
                         models.add(value["model"])
+        except (json.JSONDecodeError, IOError) as e:
+            print_warning(f"读取 OMA 配置失败: {e}")
+
+    if FALLBACKS_DIR.exists():
+        for f in sorted(FALLBACKS_DIR.glob("*.json")):
+            try:
+                with open(f, 'r', encoding='utf-8') as fh:
+                    fallback = json.load(fh)
+                for category_data in fallback.values():
+                    if isinstance(category_data, dict):
+                        for item in category_data.get("fallback_models", []):
+                            if isinstance(item, dict):
+                                models.add(item.get("model", ""))
+                            elif isinstance(item, str):
+                                models.add(item)
+            except (json.JSONDecodeError, IOError) as e:
+                print_warning(f"读取 fallback 文件 {f.name} 失败: {e}")
+
+    return sorted(models)
+
+
+def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, Optional[str], int]]:
+    """从所有来源收集模型，返回 (model, variant, frequency) 列表。
+
+    按 frequency DESC, model ASC 排序。
+    同一模型从多个来源收集时取最高频率，保留有 variant 的版本。
+    """
+    model_map: Dict[str, Tuple[Optional[str], int]] = {}
+
+    def _add_model(model: str, variant: Optional[str] = None) -> None:
+        freq = get_model_frequency(model)
+        if model in model_map:
+            existing_variant, _existing_freq = model_map[model]
+            new_variant = variant if variant is not None else existing_variant
+            model_map[model] = (new_variant, freq)
+        else:
+            model_map[model] = (variant, freq)
+
+    # 从 profiles 收集
+    if PROFILES_DIR.exists():
+        for f in PROFILES_DIR.glob("*.json"):
+            try:
+                with open(f, 'r', encoding='utf-8') as fh:
+                    profile = json.load(fh)
+                for section in ("agents", "categories"):
+                    for value in profile.get(section, {}).values():
+                        if isinstance(value, dict) and "model" in value:
+                            _add_model(value["model"], value.get("variant"))
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    # 从 OMA_CONFIG 收集
+    if OMA_CONFIG.exists():
+        try:
+            with open(OMA_CONFIG, 'r', encoding='utf-8') as f:
+                profile = json.load(f)
+            for section in ("agents", "categories"):
+                for value in profile.get(section, {}).values():
+                    if isinstance(value, dict) and "model" in value:
+                        _add_model(value["model"], value.get("variant"))
         except (json.JSONDecodeError, IOError):
             pass
 
-    return sorted(models)
+    # 从 fallbacks 收集
+    if FALLBACKS_DIR.exists():
+        for f in FALLBACKS_DIR.glob("*.json"):
+            try:
+                with open(f, 'r', encoding='utf-8') as fh:
+                    fallback = json.load(fh)
+                for category_data in fallback.values():
+                    if isinstance(category_data, dict):
+                        for item in category_data.get("fallback_models", []):
+                            if isinstance(item, dict):
+                                _add_model(item.get("model", ""), item.get("variant"))
+                            elif isinstance(item, str):
+                                model, variant = parse_model_with_variant(item)
+                                _add_model(model, variant)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    result = [(model, variant, freq) for model, (variant, freq) in model_map.items()]
+    # 按 frequency DESC, model ASC 排序
+    result.sort(key=lambda x: (-x[2], x[0]))
+    return result
+
+
+def fuzzy_match_models(query: str, candidates: List[str], limit: int = -1) -> List[str]:
+    """模糊匹配模型名。
+
+    如果 HAS_THEFUZZ，使用 partial_ratio 评分；否则使用 difflib。
+    前缀匹配的候选排在最前。
+    """
+    if not query or not candidates:
+        return []
+
+    matches: List[str] = []
+    if HAS_THEFUZZ:
+        scored: List[Tuple[str, int]] = []
+        for c in candidates:
+            score = _fuzz.partial_ratio(query.lower(), c.lower())
+            if score >= 60:
+                scored.append((c, score))
+        scored.sort(key=lambda x: -x[1])
+        matches = [c for c, _ in scored]
+    else:
+        import difflib
+        matches = list(difflib.get_close_matches(query, candidates, n=10, cutoff=0.6))
+
+    prefix_matches = sorted(
+        [c for c in candidates if c.lower().startswith(query.lower())],
+        key=lambda c: (len(c), c.lower()),
+    )
+    non_prefix = [m for m in matches if m not in prefix_matches]
+    matches = prefix_matches + non_prefix
+
+    if limit > 0:
+        matches = matches[:limit]
+    return matches
+
+
+def filter_models_by_category(models: List[str], category: str) -> List[str]:
+    """过滤出在指定分类下有使用记录的模型。"""
+    return [m for m in models if get_category_frequency(m, category) > 0]
 
 
 def prompt_select_model(
