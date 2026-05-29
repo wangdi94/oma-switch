@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from oma_switch import cli
+from oma_switch import prompt as prompt_mod
 from oma_switch import history as history_mod
 
 
@@ -463,7 +464,7 @@ class TestPromptSelectFallbackModels:
         ]
 
         with patch("builtins.input", return_value="1,2,3,4,5,6"), \
-             patch.object(cli, "collect_models_enriched", return_value=dummy_models):
+             patch.object(prompt_mod, "collect_models_enriched", return_value=dummy_models):
             result = cli.prompt_select_fallback_models("主模型", [])
 
         assert len(result) == 5
