@@ -53,6 +53,7 @@ def integration_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "FALLBACKS_DIR", fake_fallbacks_dir)
     monkeypatch.setattr(cli, "CONFIG_FILE", fake_config_dir / "config.json")
     monkeypatch.setattr(cli, "TEMPLATE_FILE", fake_config_dir / "template.json")
+    monkeypatch.setattr(cli, "HISTORY_FILE", fake_config_dir / "history.json")
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")

@@ -25,7 +25,7 @@ def history_env(tmp_path, monkeypatch):
 def profile_env(isolated_config_dir, monkeypatch):
     """Set up isolated profiles directory with test data."""
     profiles_dir = isolated_config_dir / ".config" / "oma-switch" / "profiles"
-    profiles_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(cli, "PROFILES_DIR", profiles_dir)
 
     profile1 = {
@@ -52,7 +52,7 @@ def profile_env(isolated_config_dir, monkeypatch):
 def fallback_env(isolated_config_dir, monkeypatch):
     """Set up isolated fallbacks directory with test data."""
     fallbacks_dir = isolated_config_dir / ".config" / "oma-switch" / "fallbacks"
-    fallbacks_dir.mkdir(parents=True)
+    fallbacks_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(cli, "FALLBACKS_DIR", fallbacks_dir)
 
     fallback_data = {
@@ -455,10 +455,14 @@ class TestPromptSelectFallbackModels:
 
     def test_fallback_prompt_max_limit(self, profile_env, fallback_env, history_env, capsys):
         """选择超过 5 个模型时截断并输出警告。"""
-        for i in range(6):
-            cli.record_model_usage(f"extra-model-{i}", category="主模型")
+        # 构造 6 个可用模型以触发上限截断逻辑
+        dummy_models = [
+            ("m1", None, 0), ("m2", None, 1), ("m3", None, 2),
+            ("m4", None, 3), ("m5", None, 4), ("m6", None, 5),
+        ]
 
-        with patch("builtins.input", return_value="1,2,3,4,5,6"):
+        with patch("builtins.input", return_value="1,2,3,4,5,6"), \
+             patch.object(cli, "collect_models_enriched", return_value=dummy_models):
             result = cli.prompt_select_fallback_models("主模型", [])
 
         assert len(result) == 5

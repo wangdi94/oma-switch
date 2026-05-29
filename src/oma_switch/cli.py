@@ -295,9 +295,13 @@ def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
         json.dump(current, f, indent=2, ensure_ascii=False)
 
 
+def _default_config() -> Dict[str, Any]:
+    return {"current": None, "profiles": {}, "current_fallback": ""}
+
+
 def load_config() -> Dict[str, Any]:
     if not CONFIG_FILE.exists():
-        return {"current": None, "profiles": {}}
+        return _default_config()
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -305,7 +309,7 @@ def load_config() -> Dict[str, Any]:
             return config
     except json.JSONDecodeError:
         print_error("配置文件损坏，将重新创建")
-        return {"current": None, "profiles": {}}
+        return _default_config()
 
 
 def save_config(config: Dict[str, Any]) -> None:

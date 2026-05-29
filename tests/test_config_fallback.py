@@ -8,13 +8,13 @@ current_fallback field in config.json.
 import json
 import pytest
 from pathlib import Path
+import oma_switch.cli as cli
 from oma_switch.cli import (
     load_config,
     save_config,
     get_current_fallback,
     set_current_fallback,
     clear_current_fallback_if_deleted,
-    CONFIG_FILE,
     ensure_dirs,
 )
 
@@ -26,7 +26,7 @@ class TestLoadConfigFallback:
         """Config without current_fallback field returns current_fallback=''."""
         ensure_dirs()
         old_config = {"current": "my-profile", "profiles": {}}
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        with open(cli.CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(old_config, f)
 
         result = load_config()
@@ -38,7 +38,7 @@ class TestLoadConfigFallback:
         """Config with current_fallback preserves its value."""
         ensure_dirs()
         config = {"current": "p1", "profiles": {}, "current_fallback": "chain-a"}
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        with open(cli.CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f)
 
         result = load_config()

@@ -29,19 +29,22 @@ def isolated_config_dir(tmp_path, monkeypatch):
     fake_home.mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
-    # Create directory structure
+    # 用临时目录重建完整的配置目录结构
     fake_config_dir = fake_home / ".config" / "oma-switch"
     fake_profiles_dir = fake_config_dir / "profiles"
+    fake_fallbacks_dir = fake_config_dir / "fallbacks"
     fake_opencode_dir = fake_home / ".config" / "opencode"
     fake_config_dir.mkdir(parents=True)
     fake_profiles_dir.mkdir(parents=True)
+    fake_fallbacks_dir.mkdir(parents=True)
     fake_opencode_dir.mkdir(parents=True)
 
-    # Patch module-level constants
     monkeypatch.setattr(cli, "CONFIG_DIR", fake_config_dir)
     monkeypatch.setattr(cli, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(cli, "FALLBACKS_DIR", fake_fallbacks_dir)
     monkeypatch.setattr(cli, "CONFIG_FILE", fake_config_dir / "config.json")
     monkeypatch.setattr(cli, "TEMPLATE_FILE", fake_config_dir / "template.json")
+    monkeypatch.setattr(cli, "HISTORY_FILE", fake_config_dir / "history.json")
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
