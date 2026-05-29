@@ -23,6 +23,7 @@ def isolated_config_dir(tmp_path, monkeypatch):
     """
     import oma_switch.constants as constants
     import oma_switch.cli as cli
+    import oma_switch.config_io as config_io_mod
     import oma_switch.version as version_mod
 
     fake_home = tmp_path / "home"
@@ -60,6 +61,10 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
 
     monkeypatch.setattr(version_mod, "CONFIG_DIR", fake_config_dir)
+
+    monkeypatch.setattr(config_io_mod, "CONFIG_FILE", fake_config_dir / "config.json")
+    monkeypatch.setattr(config_io_mod, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(config_io_mod, "FALLBACKS_DIR", fake_fallbacks_dir)
 
     return fake_home
 

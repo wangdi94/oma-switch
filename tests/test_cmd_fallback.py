@@ -37,15 +37,18 @@ def _patch_dirs(tmp_path, monkeypatch):
     fake_fallbacks = tmp_path / "fallbacks"
     fake_fallbacks.mkdir()
     monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_fallbacks)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks)
 
     fake_profiles = tmp_path / "profiles"
     fake_profiles.mkdir()
     monkeypatch.setattr("oma_switch.cli.PROFILES_DIR", fake_profiles)
+    monkeypatch.setattr("oma_switch.config_io.PROFILES_DIR", fake_profiles)
 
     fake_config_dir = tmp_path / "config"
     fake_config_dir.mkdir()
     fake_config_file = fake_config_dir / "config.json"
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
 
     return fake_fallbacks, fake_config_file
 
@@ -64,6 +67,8 @@ def test_list(tmp_path, monkeypatch, capsys, sample_fallback_data):
 
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
     monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_fallbacks)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks)
 
     cmd_fallback_list([])
 
@@ -306,6 +311,10 @@ def switch_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
     monkeypatch.setattr(cli, "load_template", lambda: SWITCH_TEMPLATE)
 
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_dir / "config.json")
+    monkeypatch.setattr("oma_switch.config_io.PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks_dir)
+
     config = {"current": None, "profiles": {}, "current_fallback": ""}
     with open(fake_config_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(config, f)
@@ -395,6 +404,8 @@ def test_rm(tmp_path, monkeypatch, capsys, sample_fallback_data):
 
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
     monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_fallbacks)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks)
 
     monkeypatch.setattr("builtins.input", lambda _: "y")
 
@@ -420,6 +431,8 @@ def test_rm_current(tmp_path, monkeypatch, capsys, sample_fallback_data):
 
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
     monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_fallbacks)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks)
 
     monkeypatch.setattr("builtins.input", lambda _: "y")
 
@@ -560,6 +573,7 @@ def test_list_shows_fallback(tmp_path, monkeypatch, capsys):
     with open(fake_config_file, "w") as f:
         json.dump(config, f)
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
 
     cmd_list([])
 
@@ -575,6 +589,7 @@ def test_list_shows_fallback_unset(tmp_path, monkeypatch, capsys):
     with open(fake_config_file, "w") as f:
         json.dump(config, f)
     monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
+    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
 
     cmd_list([])
 

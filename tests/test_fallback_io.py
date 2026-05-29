@@ -23,6 +23,7 @@ def _patch_fallbacks_dir(tmp_path, monkeypatch):
     fake_dir = tmp_path / "fallbacks"
     fake_dir.mkdir()
     monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_dir)
+    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_dir)
     return fake_dir
 
 

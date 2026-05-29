@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
+import oma_switch.config_io as config_io_mod
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -38,6 +39,10 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
+
+    monkeypatch.setattr(config_io_mod, "CONFIG_FILE", fake_config_dir / "config.json")
+    monkeypatch.setattr(config_io_mod, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(config_io_mod, "FALLBACKS_DIR", fake_config_dir / "fallbacks")
 
     return fake_home
 
