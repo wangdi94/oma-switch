@@ -3,17 +3,17 @@
 Covers: cmd_restore, _show_restore_list, _show_file_versions, _restore_version.
 """
 
-import sys
 import json
-import pytest
+import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
 import oma_switch.config_io as config_io_mod
 import oma_switch.version as version_mod
-
 
 # ── Fixtures ──────────────────────────────────────────────────────
 
@@ -56,7 +56,9 @@ def isolated_config_dir(tmp_path, monkeypatch):
 # ── Helpers ────────────────────────────────────────────────────────
 
 
-def _create_fake_version(filepath: Path, data: dict, timestamp: str, operation: str = "test_op") -> None:
+def _create_fake_version(
+    filepath: Path, data: dict, timestamp: str, operation: str = "test_op"
+) -> None:
     """Create a fake version snapshot (file + metadata) in the versions directory."""
     version_dir = cli.CONFIG_DIR / ".versions" / filepath.name
     version_dir.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,9 @@ Provides isolated config directory mocking and sample data fixtures
 for testing without touching real user configuration.
 """
 
-import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -21,13 +21,13 @@ def isolated_config_dir(tmp_path, monkeypatch):
 
     Returns the fake home directory Path.
     """
-    import oma_switch.constants as constants
     import oma_switch.cli as cli
     import oma_switch.cli_helpers as cli_helpers_mod
     import oma_switch.config_io as config_io_mod
+    import oma_switch.constants as constants
     import oma_switch.history as history_mod
-    import oma_switch.version as version_mod
     import oma_switch.models as models_mod
+    import oma_switch.version as version_mod
 
     fake_home = tmp_path / "home"
     fake_home.mkdir()

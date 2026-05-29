@@ -1,10 +1,6 @@
 """Tests for get_fallback_summary and print_fallback_summary functions."""
 
-import pytest
-from io import StringIO
-from unittest.mock import patch
-
-from oma_switch.cli import get_fallback_summary, print_fallback_summary, Colors
+from oma_switch.cli import get_fallback_summary, print_fallback_summary
 
 
 class TestGetFallbackSummary:
@@ -16,9 +12,7 @@ class TestGetFallbackSummary:
 
         assert isinstance(result, dict)
         assert len(result) == 5
-        assert set(result.keys()) == {
-            "主模型", "强模型", "中模型", "弱模型", "多模态模型"
-        }
+        assert set(result.keys()) == {"主模型", "强模型", "中模型", "弱模型", "多模态模型"}
 
         # 主模型: 两个字符串条目
         assert result["主模型"] == ["model-a", "model-b"]
@@ -46,11 +40,13 @@ class TestGetFallbackSummary:
     def test_variant_display(self):
         """字典条目 {'model':'x','variant':'max'} 应格式化为 'x [variant=max]'。"""
         data = {
-            "主模型": {"fallback_models": [
-                {"model": "x", "variant": "max"},
-                {"model": "y", "variant": None},
-                "plain-model",
-            ]},
+            "主模型": {
+                "fallback_models": [
+                    {"model": "x", "variant": "max"},
+                    {"model": "y", "variant": None},
+                    "plain-model",
+                ]
+            },
             "强模型": {"fallback_models": []},
             "中模型": {"fallback_models": []},
             "弱模型": {"fallback_models": []},

@@ -5,26 +5,22 @@ together, ensuring proper state isolation and cross-feature interactions.
 """
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 import oma_switch.cli as cli
 import oma_switch.cli_helpers as cli_helpers_mod
 from oma_switch.cli import (
+    cmd_fallback_edit,
+    cmd_fallback_rm,
     cmd_fallback_switch,
     cmd_switch,
-    cmd_fallback_rm,
-    cmd_fallback_edit,
-    FALLBACKS_DIR,
-    CONFIG_FILE,
-    PROFILES_DIR,
-    OMA_CONFIG,
-    save_fallback_json,
+    load_config,
     load_fallback_json,
     save_config,
-    load_config,
+    save_fallback_json,
 )
-
 
 # ── Fixture ────────────────────────────────────────────────────────
 
@@ -32,7 +28,7 @@ from oma_switch.cli import (
 @pytest.fixture
 def integration_setup(tmp_path, monkeypatch):
     """Comprehensive isolated environment for integration tests.
-    
+
     Patches all module-level constants to tmp directories.
     Returns (fake_home, fake_oma_config) tuple.
     """
@@ -104,8 +100,13 @@ def _read_oma_config() -> dict:
     return json.loads(cli.OMA_CONFIG.read_text(encoding="utf-8"))
 
 
-def _make_profile(main_model="gpt-4", strong_model="claude-3", mid_model="gpt-3.5", 
-                  weak_model="gpt-3.5-turbo", multi_model="gpt-4-vision"):
+def _make_profile(
+    main_model="gpt-4",
+    strong_model="claude-3",
+    mid_model="gpt-3.5",
+    weak_model="gpt-3.5-turbo",
+    multi_model="gpt-4-vision",
+):
     """Build a valid profile dict matching TEST_TEMPLATE."""
     return {
         "agents": {
@@ -222,7 +223,11 @@ def test_edit_fallback_updates_oma(monkeypatch, capsys):
     """Switch fallback → edit fallback → verify OMA config updated."""
     monkeypatch.setattr(cli, "load_template", lambda: TEST_TEMPLATE)
     monkeypatch.setattr(cli, "collect_all_models", lambda: ["model-a", "model-b", "model-c"])
-    monkeypatch.setattr(cli, "collect_models_enriched", lambda cat=None: [("model-a", None, 0), ("model-b", None, 0), ("model-c", None, 0)])
+    monkeypatch.setattr(
+        cli,
+        "collect_models_enriched",
+        lambda cat=None: [("model-a", None, 0), ("model-b", None, 0), ("model-c", None, 0)],
+    )
 
     # Setup: create fallback, switch it, create OMA config
     fallback_data = _make_fallback("model-a", "model-b")

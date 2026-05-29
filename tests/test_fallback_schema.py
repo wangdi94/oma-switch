@@ -1,6 +1,5 @@
 """Tests for validate_fallback_config function."""
 
-import pytest
 from oma_switch.cli import validate_fallback_config
 
 

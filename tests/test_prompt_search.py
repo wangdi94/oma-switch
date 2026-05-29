@@ -6,13 +6,13 @@ and the updated collect_all_models with fallback scanning and warning.
 """
 
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from oma_switch import cli
-from oma_switch import prompt as prompt_mod
 from oma_switch import history as history_mod
+from oma_switch import prompt as prompt_mod
 
 
 @pytest.fixture(autouse=True)
@@ -58,14 +58,10 @@ def fallback_env(isolated_config_dir, monkeypatch):
     monkeypatch.setattr(cli, "FALLBACKS_DIR", fallbacks_dir)
 
     fallback_data = {
-        "主模型": {
-            "fallback_models": ["model-a", {"model": "model-b", "variant": "pro"}]
-        },
+        "主模型": {"fallback_models": ["model-a", {"model": "model-b", "variant": "pro"}]},
         "强模型": {"fallback_models": ["model-c"]},
     }
-    (fallbacks_dir / "test.json").write_text(
-        json.dumps(fallback_data), encoding="utf-8"
-    )
+    (fallbacks_dir / "test.json").write_text(json.dumps(fallback_data), encoding="utf-8")
 
     return fallbacks_dir
 
@@ -415,8 +411,8 @@ class TestPromptSelectFallbackModels:
         output = capsys.readouterr().out
         assert "搜索 'gpt' 的结果" in output
         assert any(
-            (isinstance(r, str) and "gpt-4o" in r) or
-            (isinstance(r, dict) and r.get("model") == "gpt-4o")
+            (isinstance(r, str) and "gpt-4o" in r)
+            or (isinstance(r, dict) and r.get("model") == "gpt-4o")
             for r in result
         )
 
@@ -437,12 +433,18 @@ class TestPromptSelectFallbackModels:
         """选择超过 5 个模型时截断并输出警告。"""
         # 构造 6 个可用模型以触发上限截断逻辑
         dummy_models = [
-            ("m1", None, 0), ("m2", None, 1), ("m3", None, 2),
-            ("m4", None, 3), ("m5", None, 4), ("m6", None, 5),
+            ("m1", None, 0),
+            ("m2", None, 1),
+            ("m3", None, 2),
+            ("m4", None, 3),
+            ("m5", None, 4),
+            ("m6", None, 5),
         ]
 
-        with patch("builtins.input", return_value="1,2,3,4,5,6"), \
-             patch.object(prompt_mod, "collect_models_enriched", return_value=dummy_models):
+        with (
+            patch("builtins.input", return_value="1,2,3,4,5,6"),
+            patch.object(prompt_mod, "collect_models_enriched", return_value=dummy_models),
+        ):
             result = cli.prompt_select_fallback_models("主模型", [])
 
         assert len(result) == 5

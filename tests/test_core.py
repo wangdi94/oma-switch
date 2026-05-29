@@ -4,19 +4,19 @@ Covers: load_config, save_config, load_profile_json, check_template_profile,
 merge_to_oma_config.
 """
 
-import sys
 import json
-import pytest
+import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
 import oma_switch.cli_helpers as cli_helpers_mod
-import oma_switch.constants as constants
 import oma_switch.config_io as config_io_mod
+import oma_switch.constants as constants
 import oma_switch.version as version_mod
-
 
 # ── Fixtures ──────────────────────────────────────────────────────
 
@@ -133,9 +133,7 @@ def test_save_and_load_config_roundtrip(isolated_config_dir):
     """save_config then load_config returns the same data (plus current_fallback default)."""
     data = {
         "current": "test-profile",
-        "profiles": {
-            "test-profile": {"created": "2026-01-01", "description": "test"}
-        },
+        "profiles": {"test-profile": {"created": "2026-01-01", "description": "test"}},
     }
     cli.save_config(data)
     loaded = cli.load_config()

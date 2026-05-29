@@ -1,10 +1,9 @@
 """Tests for generate_fallback_from_types function."""
 
 import copy
-import pytest
 from unittest.mock import patch
-from oma_switch.cli import generate_fallback_from_types
 
+from oma_switch.cli import generate_fallback_from_types
 
 # 模板中的 5 个分类标签
 ALL_CATEGORIES = ["主模型", "强模型", "中模型", "弱模型", "多模态模型"]

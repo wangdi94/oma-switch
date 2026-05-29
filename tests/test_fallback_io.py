@@ -6,14 +6,12 @@ listing, deletion, and invalid JSON handling.
 """
 
 import pytest
-from pathlib import Path
+
 from oma_switch.cli import (
-    FALLBACKS_DIR,
-    get_fallback_path,
+    delete_fallback_json,
+    list_fallback_names,
     load_fallback_json,
     save_fallback_json,
-    list_fallback_names,
-    delete_fallback_json,
 )
 
 

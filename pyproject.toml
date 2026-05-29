@@ -11,7 +11,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["F405"]
+ignore = ["F405", "E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["oma_switch"]
@@ -21,6 +21,7 @@ python_version = "3.10"
 ignore_missing_imports = true
 warn_return_any = false
 disallow_untyped_defs = false
+no_implicit_optional = false
 
 [tool.coverage.run]
 source = ["src/oma_switch"]

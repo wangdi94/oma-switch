@@ -7,15 +7,15 @@ entries without replacing existing fields.
 
 import json
 import sys
-import pytest
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
 import oma_switch.cli_helpers as cli_helpers_mod
 import oma_switch.config_io as config_io_mod
-
 
 # ── Fixtures ──────────────────────────────────────────────────────
 

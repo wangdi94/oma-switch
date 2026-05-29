@@ -5,19 +5,19 @@ _list_versions, _create_version_metadata, _validate_version_metadata,
 _load_version_metadata.
 """
 
-import sys
 import json
-import pytest
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
 import oma_switch.config_io as config_io_mod
 import oma_switch.version as version_mod
-
 
 # ── Fixtures ──────────────────────────────────────────────────────
 
@@ -71,8 +71,10 @@ def mock_incrementing_datetime():
             counter[0] += 1
             return result
 
-    with patch.object(cli, "datetime", _MockDatetime), \
-         patch.object(version_mod, "datetime", _MockDatetime):
+    with (
+        patch.object(cli, "datetime", _MockDatetime),
+        patch.object(version_mod, "datetime", _MockDatetime),
+    ):
         yield
 
 
@@ -141,8 +143,7 @@ class TestCreateVersionSnapshot:
 
         version_dir = config_dir / ".versions" / "snapshot-test.json"
         snapshot_files = [
-            p for p in version_dir.glob("snapshot-test.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("snapshot-test.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(snapshot_files) == 1
 
@@ -185,8 +186,7 @@ class TestCreateVersionSnapshot:
 
         version_dir = config_dir / ".versions" / "preserve-test.json"
         snapshot_files = [
-            p for p in version_dir.glob("preserve-test.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("preserve-test.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(snapshot_files) == 1
 
@@ -214,8 +214,7 @@ class TestRotateVersions:
 
         version_dir = config_dir / ".versions" / "rotate-test.json"
         version_files = [
-            p for p in version_dir.glob("rotate-test.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("rotate-test.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(version_files) == 5
 
@@ -232,8 +231,7 @@ class TestRotateVersions:
 
         version_dir = config_dir / ".versions" / "rotate-old.json"
         version_files = [
-            p for p in version_dir.glob("rotate-old.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("rotate-old.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(version_files) == 10
 
@@ -249,8 +247,7 @@ class TestRotateVersions:
 
         version_dir = config_dir / ".versions" / "rotate-custom.json"
         version_files = [
-            p for p in version_dir.glob("rotate-custom.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("rotate-custom.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(version_files) == 5
 
@@ -267,8 +264,7 @@ class TestRotateVersions:
         version_dir = config_dir / ".versions" / "rotate-meta.json"
         meta_files = list(version_dir.glob("rotate-meta.*.meta.json"))
         version_files = [
-            p for p in version_dir.glob("rotate-meta.*.json")
-            if not p.name.endswith(".meta.json")
+            p for p in version_dir.glob("rotate-meta.*.json") if not p.name.endswith(".meta.json")
         ]
         assert len(meta_files) == len(version_files) == 10
 

@@ -1,34 +1,29 @@
 """Tests for cmd_fallback_list, cmd_fallback_create, cmd_fallback_view, cmd_fallback_diff, and cmd_fallback_edit commands."""
 
 import json
-import pytest
 from pathlib import Path
-from io import StringIO
-import sys
 from unittest.mock import patch
+
+import pytest
 
 import oma_switch.cli as cli
 import oma_switch.cli_helpers as cli_helpers_mod
 from oma_switch.cli import (
     cmd_fallback,
-    cmd_fallback_list,
     cmd_fallback_create,
-    cmd_fallback_view,
     cmd_fallback_diff,
-    cmd_fallback_switch,
-    cmd_fallback_rm,
     cmd_fallback_edit,
+    cmd_fallback_list,
+    cmd_fallback_rm,
+    cmd_fallback_switch,
+    cmd_fallback_view,
     cmd_list,
     cmd_switch,
-    FALLBACKS_DIR,
-    CONFIG_FILE,
-    PROFILES_DIR,
-    save_fallback_json,
-    load_fallback_json,
-    validate_fallback_config,
-    save_config,
     load_config,
-    Colors,
+    load_fallback_json,
+    save_config,
+    save_fallback_json,
+    validate_fallback_config,
 )
 
 
@@ -394,6 +389,7 @@ def test_switch_empty_chain(switch_setup):
 
 # ── cmd_fallback_rm tests ────────────────────────────────────────
 
+
 def test_rm(tmp_path, monkeypatch, capsys, sample_fallback_data):
     fake_fallbacks, fake_config_file = tmp_path / "fallbacks", tmp_path / "config" / "config.json"
 
@@ -469,9 +465,9 @@ def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monk
 
     fake_oma = tmp_path / "opencode" / "oh-my-openagent.json"
     fake_oma.parent.mkdir(parents=True)
-    fake_oma.write_text(json.dumps({
-        "agents": {"sisyphus": {"model": "model-x"}}
-    }), encoding="utf-8")
+    fake_oma.write_text(
+        json.dumps({"agents": {"sisyphus": {"model": "model-x"}}}), encoding="utf-8"
+    )
     monkeypatch.setattr("oma_switch.cli.OMA_CONFIG", fake_oma)
     monkeypatch.setattr("oma_switch.cli_helpers.OMA_CONFIG", fake_oma)
 
@@ -502,15 +498,17 @@ def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monk
 @patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
 @patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
 @patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
-def test_edit_non_current(mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys):
+def test_edit_non_current(
+    mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys
+):
     """编辑非当前 fallback → 文件已更新 + OMA 配置不变"""
     fake_config_file = tmp_path / "config" / "config.json"
 
     fake_oma = tmp_path / "opencode" / "oh-my-openagent.json"
     fake_oma.parent.mkdir(parents=True)
-    fake_oma.write_text(json.dumps({
-        "agents": {"sisyphus": {"model": "model-x"}}
-    }), encoding="utf-8")
+    fake_oma.write_text(
+        json.dumps({"agents": {"sisyphus": {"model": "model-x"}}}), encoding="utf-8"
+    )
     monkeypatch.setattr("oma_switch.cli.OMA_CONFIG", fake_oma)
     monkeypatch.setattr("oma_switch.cli_helpers.OMA_CONFIG", fake_oma)
 
@@ -539,6 +537,7 @@ def test_edit_non_current(mock_template, mock_collect, mock_enriched, tmp_path, 
 
 
 # ── cmd_fallback dispatch tests ──────────────────────────────────
+
 
 def test_fallback_dispatch_list(capsys):
     """cmd_fallback(['list']) should dispatch without error."""
@@ -569,6 +568,7 @@ def test_fallback_dispatch_unknown(capsys):
 
 
 # ── cmd_list fallback display tests ─────────────────────────────
+
 
 def test_list_shows_fallback(tmp_path, monkeypatch, capsys):
     """cmd_list should display the current fallback name at the end."""
@@ -603,6 +603,7 @@ def test_list_shows_fallback_unset(tmp_path, monkeypatch, capsys):
 
 
 # ── cmd_switch fallback re-injection tests ────────────────────────
+
 
 def _setup_profile_for_switch(switch_setup, profile_name="test-profile"):
     """Helper: create a profile file and register it in config."""

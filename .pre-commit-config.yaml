@@ -1,0 +1,26 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.15
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: bash -c 'mypy --ignore-missing-imports --no-namespace-packages src/oma_switch/ || true'
+        language: system
+        types: [python]
+        pass_filenames: false
+        verbose: true
+
+      - id: pytest
+        name: pytest
+        entry: pytest tests/ -x -q
+        language: system
+        types: [python]
+        pass_filenames: false

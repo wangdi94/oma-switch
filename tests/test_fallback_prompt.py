@@ -1,14 +1,12 @@
 """Tests for prompt_select_fallback_models() in oma_switch.cli."""
 
 import sys
-import pytest
 from unittest.mock import patch
 
 sys.path.insert(0, "src")
 
 import oma_switch.prompt as prompt
 from oma_switch.cli import prompt_select_fallback_models
-
 
 MODELS = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
 ENRICHED = [(m, None, 0) for m in MODELS]
@@ -76,7 +74,8 @@ def test_current_dict_variant_displayed(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda _: "")
     with patch.object(prompt, "collect_models_enriched", return_value=ENRICHED):
         prompt_select_fallback_models(
-            "主模型", MODELS,
+            "主模型",
+            MODELS,
             current=[{"model": "gpt-4o", "variant": "max"}],
         )
     captured = capsys.readouterr()

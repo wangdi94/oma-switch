@@ -6,8 +6,8 @@ get_model_frequency, get_category_frequency.
 """
 
 import json
+
 import pytest
-from pathlib import Path
 
 # Import after isolated_config_dir monkeypatch is applied
 from oma_switch import cli
