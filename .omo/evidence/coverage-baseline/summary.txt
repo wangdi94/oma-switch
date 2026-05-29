@@ -1,0 +1,6 @@
+Coverage Baseline Report
+========================
+Overall: 54.2%
+Statements: 2194
+Missing: 1004
+Tests: 223 passed
