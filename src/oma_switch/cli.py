@@ -1,44 +1,6 @@
 #!/usr/bin/env python3
-"""
-OMA (Oh-My-Agent) 配置文件切换工具
-用于管理 opencode 的 oh-my-openagent.json 配置文件
-
-快速模式（默认）：按模板中的模型分类（主/强/中/弱/多模态等）进行查看、创建、比较
-详细模式（--detail）：完整的 JSON 操作（编辑/全文查看/系统 diff）
-"""
-
-import hashlib
-import json
-import os
-import re
-import readline  # 启用 input() 的行编辑功能（方向键、历史记录等）
-import sys
-import copy
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
-
-try:
-    from thefuzz import fuzz as _fuzz
-    HAS_THEFUZZ = True
-except ImportError:
-    HAS_THEFUZZ = False
-
-CONFIG_DIR = Path.home() / ".config" / "oma-switch"
-PROFILES_DIR = CONFIG_DIR / "profiles"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-TEMPLATE_FILE = CONFIG_DIR / "template.json"
-OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
-FALLBACKS_DIR = CONFIG_DIR / "fallbacks"
-HISTORY_FILE = CONFIG_DIR / "history.json"
-
-# DCP (Dynamic Context Pruning) 插件配置
-OPENCODE_DIR = Path.home() / ".config" / "opencode"
-DCP_CONFIG_FILE = OPENCODE_DIR / "dcp.jsonc"
-
+"""OMA 配置文件切换工具 - 管理 opencode 的 oh-my-openagent.json 配置"""
+from .constants import *  # noqa: F403
 from .display import *  # noqa: F403,E402
 from .io_utils import _atomic_write_json  # noqa: F401
 from .version import *  # noqa: F403,E402
@@ -53,72 +15,48 @@ from .commands import *  # noqa: F403,F401
 from .fallback_cmds import *  # noqa: F403
 
 
-
-
-
 def cmd_help() -> None:
     """显示帮助信息"""
-    help_text = f"""
+    print("""
 OMA 配置文件切换工具 (v2.0)
 
 用法: oma-switch <command> [args...] [--detail]
 
-快速模式（默认）与详细模式（--detail）:
-  view, create, diff 命令支持两种模式。
-
-   快速模式（默认）：按模板中的模型分类（强/中/弱/多模态等）维度操作
-   详细模式（--detail）：完整的 JSON 编辑/查看/diff（原行为）
-
-   快速模式只适用于符合模板结构（agents + categories）的配置文件。
-   不满足时，view/diff 自动降级到详细模式，create 会询问是否进入详细模式。
-
 命令:
-    管理相关:
-      add <filepath> <name>    添加配置文件到可用列表
-      rm <name>                删除配置文件
-      rename <name> <newname>  重命名配置文件
-      list                     列出所有配置文件
-      switch <name>            切换到指定配置文件
-      backup                   备份当前配置
-      restore [file] [version] 恢复历史版本
-      template [edit|reset|diff] 查看/编辑/重置/比较模板
-      dcp [subcommand]         管理 DCP 插件（每个配置独立绑定）
+  管理相关:
+    add <filepath> <name>    添加配置文件到可用列表
+    rm <name>                删除配置文件
+    rename <name> <newname>  重命名配置文件
+    list                     列出所有配置文件
+    switch <name>            切换到指定配置文件
+    backup                   备份当前配置
+    restore [file] [version] 恢复历史版本
+    template [edit|reset|diff] 查看/编辑/重置/比较模板
+    dcp [subcommand]         管理 DCP 插件（每个配置独立绑定）
 
-   支持双模式（快速/详细）:
-     edit [--detail] <name>    编辑配置文件
-       - 快速模式: 交互式修改各分类模型，自动生成
-       - 详细模式: 打开编辑器编辑完整 JSON
-
-     create [--detail] <name>  创建新配置
-       - 快速模式: 指定各分类模型自动生成
-       - 详细模式: 复制当前配置并打开编辑器
-
-     view [--detail] [name]    查看配置文件
-       - 快速模式: 按模板分组显示
-       - 详细模式: 显示完整 JSON
-
-     diff [--detail] <name1> [name2]  比较配置文件
-       - 快速模式: 比较各分类模型差异
-       - 详细模式: 系统 diff 命令
+  支持双模式（快速/详细）:
+    edit [--detail] <name>    编辑配置文件
+    create [--detail] <name>  创建新配置
+    view [--detail] [name]    查看配置文件
+    diff [--detail] <name1> [name2]  比较配置文件
 
 快速模式的模型分类:
-   主模型            → sisyphus, hephaestus, prometheus, atlas
-   强模型（Pro）      → oracle, metis, momus, plan, ultrabrain, artistry
-   中模型（Standard） → sisyphus-junior, deep, visual-engineering, writing, unspecified-high
-   弱模型（Flash）    → explore, librarian, quick, unspecified-low
-   多模态模型         → multimodal-looker
+  主模型            → sisyphus, hephaestus, prometheus, atlas
+  强模型（Pro）      → oracle, metis, momus, plan, ultrabrain, artistry
+  中模型（Standard） → sisyphus-junior, deep, visual-engineering, writing, unspecified-high
+  弱模型（Flash）    → explore, librarian, quick, unspecified-low
+  多模态模型         → multimodal-looker
 
 配置文件存储位置: ~/.config/oma-switch/profiles/
 
-DCP 插件管理（每个配置独立绑定）:
+DCP 插件管理:
   dcp                                   查看 DCP 配置摘要
   dcp show                              显示完整 DCP 配置
-  dcp on|off                            启用/禁用 DCP（同步到当前配置）
+  dcp on|off                            启用/禁用 DCP
   dcp bind [name]                       查看配置的 DCP 绑定
   dcp bind <name> on|off                设置配置的 DCP 绑定
   dcp edit                              交互式编辑 DCP 插件参数
   dcp set <key> <value>                 快速设置 DCP 插件参数
-  dcp-config [models...]                已废弃（请使用 dcp bind）
 
 Fallback 链管理:
   fallback create <name>        创建新的 fallback 链
@@ -128,49 +66,26 @@ Fallback 链管理:
   fallback edit <name>          编辑 fallback 链
   fallback diff <name1> [name2] 比较 fallback 链
   fallback rm <name>            删除 fallback 链
-"""
-    print(help_text)
-
-
-
+""")
 
 
 def main() -> None:
     """主函数"""
     ensure_dirs()
     check_current_unrecorded()
-
     if len(sys.argv) < 2:
         cmd_help()
         sys.exit(0)
-
-    command = sys.argv[1]
-    args = sys.argv[2:]
-
+    command, args = sys.argv[1], sys.argv[2:]
     commands = {
-        "add": cmd_add,
-        "rm": cmd_rm,
-        "edit": cmd_edit,
-        "create": cmd_create,
-        "view": cmd_view,
-        "rename": cmd_rename,
-        "list": cmd_list,
-        "switch": cmd_switch,
-        "diff": cmd_diff,
-        "backup": cmd_backup,
-        "template": cmd_template,
-        "dcp-config": cmd_dcp_config,
-        "dcp": cmd_dcp,
-        "fallback": cmd_fallback,
-        "restore": cmd_restore,
-        "help": cmd_help,
+        "add": cmd_add, "rm": cmd_rm, "edit": cmd_edit, "create": cmd_create,
+        "view": cmd_view, "rename": cmd_rename, "list": cmd_list,
+        "switch": cmd_switch, "diff": cmd_diff, "backup": cmd_backup,
+        "template": cmd_template, "dcp-config": cmd_dcp_config, "dcp": cmd_dcp,
+        "fallback": cmd_fallback, "restore": cmd_restore, "help": cmd_help,
     }
-
     if command in commands:
-        if command == "help":
-            commands[command]()
-        else:
-            commands[command](args)
+        commands[command]() if command == "help" else commands[command](args)
     else:
         print_error(f"未知命令: {command}")
         cmd_help()
