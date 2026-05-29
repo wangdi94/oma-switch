@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, "src")
 
 import oma_switch.cli as cli
+import oma_switch.cli_helpers as cli_helpers_mod
 import oma_switch.constants as constants
 import oma_switch.config_io as config_io_mod
 import oma_switch.version as version_mod
@@ -61,6 +62,8 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
+
+    monkeypatch.setattr(cli_helpers_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
 
     monkeypatch.setattr(version_mod, "CONFIG_DIR", fake_config_dir)
 

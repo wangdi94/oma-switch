@@ -8,6 +8,7 @@ import sys
 from unittest.mock import patch
 
 import oma_switch.cli as cli
+import oma_switch.cli_helpers as cli_helpers_mod
 from oma_switch.cli import (
     cmd_fallback,
     cmd_fallback_list,
@@ -310,6 +311,8 @@ def switch_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
     monkeypatch.setattr(cli, "load_template", lambda: SWITCH_TEMPLATE)
+    monkeypatch.setattr(cli_helpers_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
+    monkeypatch.setattr(cli_helpers_mod, "load_template", lambda: SWITCH_TEMPLATE)
 
     monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_dir / "config.json")
     monkeypatch.setattr("oma_switch.config_io.PROFILES_DIR", fake_profiles_dir)
@@ -470,6 +473,7 @@ def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monk
         "agents": {"sisyphus": {"model": "model-x"}}
     }), encoding="utf-8")
     monkeypatch.setattr("oma_switch.cli.OMA_CONFIG", fake_oma)
+    monkeypatch.setattr("oma_switch.cli_helpers.OMA_CONFIG", fake_oma)
 
     save_fallback_json("my-fb", EDIT_INITIAL_DATA)
 
@@ -508,6 +512,7 @@ def test_edit_non_current(mock_template, mock_collect, mock_enriched, tmp_path, 
         "agents": {"sisyphus": {"model": "model-x"}}
     }), encoding="utf-8")
     monkeypatch.setattr("oma_switch.cli.OMA_CONFIG", fake_oma)
+    monkeypatch.setattr("oma_switch.cli_helpers.OMA_CONFIG", fake_oma)
 
     save_fallback_json("my-fb", EDIT_INITIAL_DATA)
 

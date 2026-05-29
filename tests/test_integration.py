@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 
 import oma_switch.cli as cli
+import oma_switch.cli_helpers as cli_helpers_mod
 from oma_switch.cli import (
     cmd_fallback_switch,
     cmd_switch,
@@ -55,6 +56,7 @@ def integration_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "TEMPLATE_FILE", fake_config_dir / "template.json")
     monkeypatch.setattr(cli, "HISTORY_FILE", fake_config_dir / "history.json")
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
+    monkeypatch.setattr(cli_helpers_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
 
