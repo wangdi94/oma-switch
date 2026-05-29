@@ -1,0 +1,21 @@
+Task 0: Record baselines before any changes
+
+## Test Results
+Command: python3 -m pytest tests/ -v --tb=short
+Result: 225 passed in 1.52s
+
+## Mypy Results
+Command: python3 -m mypy src/oma_switch/ --ignore-missing-imports
+Result: Mypy not installed (N/A)
+
+## CLI List Output
+Command: python3 -m oma_switch list
+Output: See cli_list_output.txt
+
+## CLI Help Output
+Command: python3 -m oma_switch --help
+Output: See cli_help_output.txt
+
+## Verification
+- Baseline data recorded successfully
+- All baseline files created in .omo/evidence/baseline/
