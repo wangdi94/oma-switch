@@ -207,8 +207,8 @@ def validate_fallback_config(data: FallbackData) -> Tuple[bool, str]:
         if not isinstance(models, list):
             return False, f"fallback_models must be a list in category: {category}"
 
-        if len(models) > 5:
-            return False, f"too many models in category: {category}, max is 5"
+        if len(models) > 20:
+            return False, f"too many models in category: {category}, max is 20"
 
         seen: list = []
         for item in models:

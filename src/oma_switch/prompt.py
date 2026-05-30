@@ -110,7 +110,7 @@ def prompt_select_model(
             _display_models(display_list)
 
 
-MAX_FALLBACK_MODELS = 5
+MAX_FALLBACK_MODELS = 20
 
 
 def prompt_select_fallback_models(
