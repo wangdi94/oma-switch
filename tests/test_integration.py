@@ -11,6 +11,11 @@ import pytest
 
 import oma_switch.cli as cli
 import oma_switch.cli_helpers as cli_helpers_mod
+import oma_switch.config_io as config_io_mod
+import oma_switch.constants as constants
+import oma_switch.history as history_mod
+import oma_switch.models as models_mod
+import oma_switch.version as version_mod
 from oma_switch.cli import (
     cmd_fallback_edit,
     cmd_fallback_rm,
@@ -44,7 +49,21 @@ def integration_setup(tmp_path, monkeypatch):
     fake_fallbacks_dir.mkdir(parents=True)
     fake_opencode_dir.mkdir(parents=True)
 
+    # Patch Path.home() for all modules
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    # Patch constants module (source of truth for paths)
+    monkeypatch.setattr(constants, "CONFIG_DIR", fake_config_dir)
+    monkeypatch.setattr(constants, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(constants, "FALLBACKS_DIR", fake_fallbacks_dir)
+    monkeypatch.setattr(constants, "CONFIG_FILE", fake_config_dir / "config.json")
+    monkeypatch.setattr(constants, "TEMPLATE_FILE", fake_config_dir / "template.json")
+    monkeypatch.setattr(constants, "HISTORY_FILE", fake_config_dir / "history.json")
+    monkeypatch.setattr(constants, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
+    monkeypatch.setattr(constants, "OPENCODE_DIR", fake_opencode_dir)
+    monkeypatch.setattr(constants, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
+
+    # Patch cli module
     monkeypatch.setattr(cli, "CONFIG_DIR", fake_config_dir)
     monkeypatch.setattr(cli, "PROFILES_DIR", fake_profiles_dir)
     monkeypatch.setattr(cli, "FALLBACKS_DIR", fake_fallbacks_dir)
@@ -52,13 +71,27 @@ def integration_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "TEMPLATE_FILE", fake_config_dir / "template.json")
     monkeypatch.setattr(cli, "HISTORY_FILE", fake_config_dir / "history.json")
     monkeypatch.setattr(cli, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
-    monkeypatch.setattr(cli_helpers_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(cli, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(cli, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
 
-    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_dir / "config.json")
-    monkeypatch.setattr("oma_switch.config_io.PROFILES_DIR", fake_profiles_dir)
-    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks_dir)
+    # Patch cli_helpers module
+    monkeypatch.setattr(cli_helpers_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
+
+    # Patch config_io module
+    monkeypatch.setattr(config_io_mod, "CONFIG_FILE", fake_config_dir / "config.json")
+    monkeypatch.setattr(config_io_mod, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(config_io_mod, "FALLBACKS_DIR", fake_fallbacks_dir)
+
+    # Patch history module
+    monkeypatch.setattr(history_mod, "HISTORY_FILE", fake_config_dir / "history.json")
+
+    # Patch version module
+    monkeypatch.setattr(version_mod, "CONFIG_DIR", fake_config_dir)
+
+    # Patch models module
+    monkeypatch.setattr(models_mod, "PROFILES_DIR", fake_profiles_dir)
+    monkeypatch.setattr(models_mod, "FALLBACKS_DIR", fake_fallbacks_dir)
+    monkeypatch.setattr(models_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
 
     config = {"current": None, "profiles": {}, "current_fallback": ""}
     with open(fake_config_dir / "config.json", "w", encoding="utf-8") as f:
