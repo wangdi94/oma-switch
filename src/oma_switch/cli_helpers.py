@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config_io import get_profile_path, load_config, load_profile_json, save_config, _load_json_with_recovery
 from .constants import OMA_CONFIG
@@ -39,11 +39,40 @@ def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
     _rotate_versions(OMA_CONFIG)
 
 
+def _get_model_name(item: Any) -> str:
+    """从 fallback 链条目中提取模型名称（不含 variant）。
+
+    支持两种格式：
+    - 字符串: "vendor/model-name"
+    - 对象: {"model": "vendor/model-name", "variant": "max"}
+    """
+    if isinstance(item, dict):
+        return item.get("model", "")
+    return str(item)
+
+
+def _filter_chain_by_current_model(chain: List[Any], current_model: Optional[str]) -> List[Any]:
+    """从 fallback 链中移除与当前模型相同的条目。
+
+    参数:
+        chain: fallback 模型链（字符串或对象列表）
+        current_model: 当前 entry 使用的模型名称
+    返回:
+        过滤后的 fallback 链
+    """
+    if not current_model:
+        return chain
+    return [item for item in chain if _get_model_name(item) != current_model]
+
+
 def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
     """将 fallback_models 字段级注入到 OMA 配置中，保留所有现有字段。
 
     与 merge_to_oma_config 不同，此函数不替换整个 agents/categories 节，
     而是在每个条目中设置/移除 fallback_models 字段。
+
+    注入时会自动过滤掉与 entry 当前模型相同的 fallback 条目，
+    避免主模型出现在自己的 fallback 链中。
 
     参数:
         fallback_data: 分类 → {"fallback_models": [...]} 的映射
@@ -65,7 +94,9 @@ def merge_fallback_to_oma_config(fallback_data: Dict[str, Any]) -> None:
 
             entry = current[section][key]
             if chain:
-                entry["fallback_models"] = copy.deepcopy(chain)
+                current_model = entry.get("model") or ""
+                filtered_chain = _filter_chain_by_current_model(chain, current_model)
+                entry["fallback_models"] = copy.deepcopy(filtered_chain)
                 any_active = True
             else:
                 entry.pop("fallback_models", None)

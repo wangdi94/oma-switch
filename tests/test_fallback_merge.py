@@ -197,3 +197,97 @@ def test_model_fallback_false(isolated_config_dir, monkeypatch):
 
     result = _read_oma_config()
     assert result["model_fallback"] is False
+
+
+# ── Tests for fallback chain filtering ────────────────────────────
+
+
+def test_get_model_name_string():
+    assert cli_helpers_mod._get_model_name("vendor/model") == "vendor/model"
+
+
+def test_get_model_name_dict():
+    assert cli_helpers_mod._get_model_name({"model": "vendor/model", "variant": "max"}) == "vendor/model"
+
+
+def test_get_model_name_dict_no_model():
+    assert cli_helpers_mod._get_model_name({"variant": "max"}) == ""
+
+
+def test_filter_chain_removes_current_model():
+    chain = ["model-a", "model-b", "model-c"]
+    assert cli_helpers_mod._filter_chain_by_current_model(chain, "model-b") == ["model-a", "model-c"]
+
+
+def test_filter_chain_removes_current_model_dict_format():
+    chain = [
+        "model-a",
+        {"model": "model-b", "variant": "max"},
+        "model-c",
+    ]
+    assert cli_helpers_mod._filter_chain_by_current_model(chain, "model-b") == ["model-a", "model-c"]
+
+
+def test_filter_chain_keeps_all_when_not_in_chain():
+    chain = ["model-a", "model-b"]
+    assert cli_helpers_mod._filter_chain_by_current_model(chain, "model-x") == ["model-a", "model-b"]
+
+
+def test_filter_chain_empty_model():
+    chain = ["model-a", "model-b"]
+    assert cli_helpers_mod._filter_chain_by_current_model(chain, "") == ["model-a", "model-b"]
+
+
+def test_filter_chain_none_model():
+    chain = ["model-a", "model-b"]
+    assert cli_helpers_mod._filter_chain_by_current_model(chain, None) == ["model-a", "model-b"]
+
+
+def test_merge_fallback_filters_current_model(isolated_config_dir, monkeypatch):
+    _monkeypatch_template(monkeypatch)
+    existing = {
+        "agents": {
+            "sisyphus": {"model": "model-a"},
+            "hephaestus": {"model": "model-b"},
+            "oracle": {"model": "model-c"},
+        },
+    }
+    _write_oma_config(existing)
+
+    fallback_data = {
+        "主模型": {"fallback_models": ["model-a", "model-x", "model-y"]},
+    }
+    cli.merge_fallback_to_oma_config(fallback_data)
+
+    result = _read_oma_config()
+    assert result["agents"]["sisyphus"]["fallback_models"] == ["model-x", "model-y"]
+    assert result["agents"]["hephaestus"]["fallback_models"] == ["model-a", "model-x", "model-y"]
+
+
+def test_merge_fallback_filters_dict_format(isolated_config_dir, monkeypatch):
+    _monkeypatch_template(monkeypatch)
+    existing = {
+        "agents": {
+            "sisyphus": {"model": "model-a"},
+            "hephaestus": {"model": "model-a"},
+            "oracle": {"model": "model-c"},
+        },
+    }
+    _write_oma_config(existing)
+
+    fallback_data = {
+        "主模型": {
+            "fallback_models": [
+                "model-a",
+                {"model": "model-b", "variant": "max"},
+                "model-x",
+            ]
+        },
+    }
+    cli.merge_fallback_to_oma_config(fallback_data)
+
+    result = _read_oma_config()
+    assert result["agents"]["sisyphus"]["fallback_models"] == [
+        {"model": "model-b", "variant": "max"},
+        "model-x",
+    ]
