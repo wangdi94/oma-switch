@@ -93,6 +93,7 @@ oma-switch/
 ## CONVENTIONS（与标准 Python 的偏差）
 
 - **近零依赖**：主要用标准库，thefuzz[speedup] 用于模糊搜索（可选，有 difflib fallback）
+- **Fallback 模型限制**：每个分类最多 20 个 fallback 模型（`MAX_FALLBACK_MODELS = 20`，在 `prompt.py` 和 `template.py` 中定义）
 - **模块化拆分**：3745 行 → 17 个模块（27-665 行/个）
 - **手动 CLI**：不用 argparse/click，`sys.argv` + 字典分派
 - **src 布局**：包在 `src/oma_switch/`，`setup.py` 用 `find_packages(where="src")`
