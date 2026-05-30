@@ -1,13 +1,36 @@
 """
-IO 工具模块：文件原子写入等基础 IO 操作
+IO 工具模块：文件原子写入、容错 JSON 解析等基础 IO 操作
 """
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+# 匹配尾随逗号：逗号后可选空白，然后是 } 或 ]
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+
+
+def _parse_json_tolerant(text: str) -> Dict[str, Any]:
+    """解析 JSON 文本，自动修复尾随逗号等常见错误。
+
+    Args:
+        text: JSON 文本
+
+    Returns:
+        解析后的字典
+
+    Raises:
+        json.JSONDecodeError: 修复后仍无法解析
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        fixed = _TRAILING_COMMA_RE.sub(r"\1", text)
+        return json.loads(fixed)
 
 
 def _atomic_write_json(

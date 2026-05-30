@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from .constants import CONFIG_FILE, FALLBACKS_DIR, PROFILES_DIR
 from .display import print_error, print_warning
-from .io_utils import _atomic_write_json
+from .io_utils import _atomic_write_json, _parse_json_tolerant
 from .types import FallbackData, OmaSwitchConfig
 from .version import _create_version_snapshot, _recover_from_versions, _rotate_versions
 
@@ -30,7 +30,8 @@ def _load_json_with_recovery(filepath: Path, display_name: str) -> Optional[Dict
         return None
     try:
         with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
+            text = f.read()
+        return _parse_json_tolerant(text)
     except json.JSONDecodeError:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         corrupted_path = filepath.with_suffix(f".json.corrupted.{ts}")
