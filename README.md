@@ -2,7 +2,9 @@
 
 OMA (Oh-My-Agent) 配置文件切换工具 — 管理 opencode 的 `oh-my-openagent.json` 配置。
 
-支持按模板中的模型分类（主模型 / 强模型 / 中模型 / 弱模型 / 多模态模型等）快速查看、创建、编辑、切换、比较配置。
+按模板中的模型分类（主/强/中/弱/多模态）快速查看、创建、编辑、切换、比较配置。每个配置独立绑定 DCP 开关。支持 fallback 链管理（每分类独立配置 fallback 模型链）。
+
+栈：Python ≥3.10 + 标准库 + thefuzz[speedup]（可选）+ pytest。
 
 ## 安装
 
@@ -101,7 +103,7 @@ pip install -e .           # 可编辑安装
 ### 运行测试
 
 ```bash
-pytest tests/ -v           # 运行所有测试（98 个）
+pytest tests/ -v           # 运行所有测试（223 个）
 pytest tests/test_core.py  # 运行特定测试文件
 ```
 
@@ -109,9 +111,23 @@ pytest tests/test_core.py  # 运行特定测试文件
 
 ```
 src/oma_switch/
-├── __init__.py        # 版本定义
-├── __main__.py        # python -m 入口
-└── cli.py             # 所有业务逻辑（2442 行）
+├── __init__.py        # 版本定义（v2.1.0）
+├── __main__.py        # python -m 入口 → cli.main
+├── cli.py             # re-export 薄层 + main() + cmd_help()
+├── constants.py       # 路径常量 + HAS_THEFUZZ
+├── display.py         # Colors + print_* 函数
+├── io_utils.py        # _atomic_write_json（原子写入）
+├── version.py         # 版本管理 + 恢复命令
+├── config_io.py       # 配置加载/保存 + profiles/fallbacks I/O
+├── history.py         # 模型使用频率记录
+├── template.py        # 模板管理 + 验证 + 显示
+├── dcp.py             # DCP 管理 + 命令
+├── models.py          # 模型收集/搜索/分析
+├── prompt.py          # 交互式模型选择 + Fallback 生成
+├── cli_helpers.py     # 工具函数 + 配置合并
+├── commands.py        # profile 管理命令（cmd_*）
+├── fallback_cmds.py   # Fallback 命令 + 调度器
+└── types.py           # TypedDict 类型定义
 ```
 
 ### 代码约定
@@ -119,7 +135,10 @@ src/oma_switch/
 - 近零依赖（主要用标准库，thefuzz[speedup] 用于模糊搜索，可选，有 difflib fallback）
 - 中文化 UI（终端输出、错误信息）
 - 手动 CLI 解析（`sys.argv` + 字典分派）
+- src 布局（`setup.py` 用 `find_packages(where="src")`）
 - 函数命名：`cmd_*`（公开命令），`_*`（内部辅助）
+- 类型注解：TypedDict + `Dict[str, Any]` 混合
+- 工具链：ruff（lint+format）+ mypy（type check）+ pre-commit + pytest-cov + GitHub Actions CI
 
 ## 配置存储
 
@@ -138,3 +157,11 @@ src/oma_switch/
 
 目标 opencode 配置路径：`~/.config/opencode/oh-my-openagent.json`
 DCP 配置路径：`~/.config/opencode/dcp.jsonc`
+
+## 实现细节
+
+- Fallback 和 Profile 完全独立：切换 profile 保留 fallback，切换 fallback 不动 model
+- 版本管理：每次写入前自动快照，保留最近 10 个版本
+- 原子写入：所有 JSON 写操作使用 write-to-temp + fsync + rename
+- 损坏恢复：`_load_json_with_recovery()` 统一处理，损坏时保留 `.corrupted.<ts>` 文件
+- 测试隔离：`isolated_config_dir` fixture monkeypatch 所有模块的路径常量，防止测试污染生产配置

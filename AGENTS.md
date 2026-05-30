@@ -1,7 +1,7 @@
 # oma-switch
 
 **Generated:** 2026-05-30
-**Commit:** 7566bc9
+**Commit:** 23a8420
 **Branch:** dev
 
 ## OVERVIEW
@@ -45,7 +45,6 @@ oma-switch/
 │   ├── test_atomic_write.py  # 原子写入测试（18 个）
 │   ├── test_version_management.py  # 版本管理测试（37 个）
 │   └── test_restore.py     # 恢复命令测试（20 个）
-└── .omo/                  # 工作会话记录
 ```
 
 ## WHERE TO LOOK
@@ -94,7 +93,7 @@ oma-switch/
 ## CONVENTIONS（与标准 Python 的偏差）
 
 - **近零依赖**：主要用标准库，thefuzz[speedup] 用于模糊搜索（可选，有 difflib fallback）
-- **模块化拆分**：3306 行单体 → 17 个模块（200-700 行/个）
+- **模块化拆分**：3745 行 → 17 个模块（27-665 行/个）
 - **手动 CLI**：不用 argparse/click，`sys.argv` + 字典分派
 - **src 布局**：包在 `src/oma_switch/`，`setup.py` 用 `find_packages(where="src")`
 - **配置存储**：JSON 文件在 `~/.config/oma-switch/`（profiles/, fallbacks/, config.json, template.json, history.json）
