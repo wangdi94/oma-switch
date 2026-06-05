@@ -180,6 +180,12 @@ def cmd_edit(args: List[str]) -> None:
                     edited_profile = load_profile_json(name)
                     if edited_profile:
                         merge_to_oma_config(edited_profile)
+                        # Re-inject current fallback if set (profile edit replaces agents/categories)
+                        current_fallback = get_current_fallback(config)
+                        if current_fallback:
+                            fallback_data = load_fallback_json(current_fallback)
+                            if fallback_data is not None:
+                                merge_fallback_to_oma_config(cast(Dict[str, Any], fallback_data))
                         print_info("已同步到 OMA 配置文件")
             else:
                 print_error("配置文件格式错误，已恢复")
@@ -199,6 +205,11 @@ def cmd_edit(args: List[str]) -> None:
                     edited_profile = load_profile_json(name)
                     if edited_profile:
                         merge_to_oma_config(edited_profile)
+                        current_fallback = get_current_fallback(config)
+                        if current_fallback:
+                            fallback_data = load_fallback_json(current_fallback)
+                            if fallback_data is not None:
+                                merge_fallback_to_oma_config(cast(Dict[str, Any], fallback_data))
                         print_info("已同步到 OMA 配置文件")
             else:
                 print_error("配置文件格式错误，已恢复")
@@ -235,6 +246,11 @@ def cmd_edit(args: List[str]) -> None:
 
     if config.get("current") == name:
         merge_to_oma_config(new_profile)
+        current_fallback = get_current_fallback(config)
+        if current_fallback:
+            fallback_data = load_fallback_json(current_fallback)
+            if fallback_data is not None:
+                merge_fallback_to_oma_config(cast(Dict[str, Any], fallback_data))
         print_info("已同步到 OMA 配置文件")
 
     print()
