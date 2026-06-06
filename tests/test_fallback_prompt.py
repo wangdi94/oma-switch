@@ -80,3 +80,19 @@ def test_current_dict_variant_displayed(monkeypatch, capsys):
         )
     captured = capsys.readouterr()
     assert "gpt-4o[max]" in captured.out
+
+
+def test_zero_clears_current(monkeypatch, capsys):
+    """输入 0 应该清空当前 fallback 链"""
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+    with patch.object(prompt, "collect_models_enriched", return_value=ENRICHED):
+        result = prompt_select_fallback_models("主模型", MODELS, current=["a", "b", "c"])
+    assert result == []
+
+
+def test_zero_clears_empty_current(monkeypatch, capsys):
+    """输入 0 在没有当前值时也返回空列表"""
+    monkeypatch.setattr("builtins.input", lambda _: "0")
+    with patch.object(prompt, "collect_models_enriched", return_value=ENRICHED):
+        result = prompt_select_fallback_models("主模型", MODELS)
+    assert result == []

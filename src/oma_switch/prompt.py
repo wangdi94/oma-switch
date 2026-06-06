@@ -123,6 +123,7 @@ def prompt_select_fallback_models(
     current 可以是字符串列表或包含 variant 的字典列表（向后兼容）。
     用户可以通过逗号分隔的编号或模型名选择多个模型，支持 model[variant] 格式。
     空输入在有当前值时保留当前链，在无当前值时清空链（返回 []）。
+    输入 0 可以清空当前 fallback 链。
     最多选择 MAX_FALLBACK_MODELS 个模型。
     模型按分类分组展示，支持搜索过滤，记录使用历史。
     """
@@ -221,7 +222,7 @@ def prompt_select_fallback_models(
 
     if current:
         prompt_text = (
-            f"  请输入{type_label} fallback 模型（逗号分隔的编号/模型名[variant]，留空=保留当前）: "
+            f"  请输入{type_label} fallback 模型（逗号分隔的编号/模型名[variant]，留空=保留当前，0=清空）: "
         )
     else:
         prompt_text = (
@@ -233,6 +234,9 @@ def prompt_select_fallback_models(
 
         if not choice:
             return list(current) if current else []
+
+        if choice == "0":
+            return []
 
         parts = [p.strip() for p in choice.split(",") if p.strip()]
 
