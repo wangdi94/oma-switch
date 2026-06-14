@@ -227,7 +227,7 @@ def test_check_template_profile_valid_full_template(isolated_config_dir):
 
 
 def test_merge_to_oma_config_preserves_existing_fields(isolated_config_dir):
-    """merge_to_oma_config preserves $schema, background, permissions."""
+    """merge_to_oma_config preserves $schema, background, permissions and existing agents."""
     existing = {
         "$schema": "http://example.com/schema.json",
         "background": "some-bg",
@@ -247,8 +247,10 @@ def test_merge_to_oma_config_preserves_existing_fields(isolated_config_dir):
     assert result["$schema"] == "http://example.com/schema.json"
     assert result["background"] == "some-bg"
     assert result["permissions"] == {"allow": ["*"]}
-    assert result["agents"] == {"new_agent": {"model": "new"}}
-    assert result["categories"] == {"new_cat": {"model": "new"}}
+    assert result["agents"]["old_agent"] == {"model": "old"}
+    assert result["agents"]["new_agent"] == {"model": "new"}
+    assert result["categories"]["old_cat"] == {"model": "old"}
+    assert result["categories"]["new_cat"] == {"model": "new"}
 
 
 def test_merge_to_oma_config_creates_if_missing(isolated_config_dir):
@@ -280,3 +282,28 @@ def test_merge_to_oma_config_only_replaces_agents_categories(isolated_config_dir
     assert result["agents"] == {"x": {"model": "y"}}
     # categories unchanged (source didn't have it)
     assert result["categories"] == {}
+
+
+def test_merge_to_oma_config_preserves_extra_fields(isolated_config_dir):
+    """merge_to_oma_config preserves extra fields like prompt_append."""
+    existing = {
+        "agents": {
+            "prometheus": {"model": "gpt-4", "prompt_append": "custom instruction"},
+            "oracle": {"model": "claude-3", "temperature": 0.7},
+        },
+    }
+    cli.OMA_CONFIG.write_text(json.dumps(existing), encoding="utf-8")
+
+    source = {
+        "agents": {
+            "prometheus": {"model": "gpt-4o"},
+            "oracle": {"model": "claude-3.5"},
+        },
+    }
+    cli.merge_to_oma_config(source)
+
+    result = json.loads(cli.OMA_CONFIG.read_text(encoding="utf-8"))
+    assert result["agents"]["prometheus"]["model"] == "gpt-4o"
+    assert result["agents"]["prometheus"]["prompt_append"] == "custom instruction"
+    assert result["agents"]["oracle"]["model"] == "claude-3.5"
+    assert result["agents"]["oracle"]["temperature"] == 0.7

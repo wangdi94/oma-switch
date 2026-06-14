@@ -20,19 +20,38 @@ from .version import _create_version_snapshot, _rotate_versions
 
 
 def merge_to_oma_config(source_profile: Dict[str, Any]) -> None:
-    """将 source_profile 中的 agents 和 categories 合并到 OMA_CONFIG，保留其他字段。
+    """将 source_profile 中的 agents 和 categories 合并到 OMA_CONFIG，保留所有现有字段。
 
-    只更新以下顶层键：
-    - agents
-    - categories
+    字段级合并：对于 source_profile 中的每个 entry，只更新 model 和 variant，
+    保留该 entry 中的所有其他字段（如 prompt_append、temperature 等）。
     其他顶层键（$schema, background, permissions 等）保持不变。
     如果 OMA_CONFIG 不存在，则以 source_profile 为基础创建。
     """
     current = _load_json_with_recovery(OMA_CONFIG, "OMA 配置文件") or {}
 
-    for key in ("agents", "categories"):
-        if key in source_profile:
-            current[key] = copy.deepcopy(source_profile[key])
+    for section in ("agents", "categories"):
+        if section not in source_profile:
+            continue
+
+        if section not in current:
+            current[section] = {}
+
+        for key, source_entry in source_profile[section].items():
+            if not isinstance(source_entry, dict):
+                continue
+
+            # 确保目标 entry 存在
+            if key not in current[section]:
+                current[section][key] = {}
+
+            entry = current[section][key]
+
+            # 只更新 model 和 variant，保留所有其他字段
+            entry["model"] = source_entry.get("model", "")
+            if source_entry.get("variant"):
+                entry["variant"] = source_entry["variant"]
+            else:
+                entry.pop("variant", None)
 
     _create_version_snapshot(OMA_CONFIG, "merge_to_oma_config")
     _atomic_write_json(OMA_CONFIG, current)

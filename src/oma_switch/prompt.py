@@ -277,8 +277,8 @@ def generate_profile_from_types(
     """
     根据模板生成新 profile。
     model_map: {类型: (新模型名, variant)}
-    按模板分组替换各角色的 model 和 variant。
-    如果模板中的条目在 profile 中不存在，则自动创建。
+    按模板分组替换各角色的 model 和 variant，保留所有现有字段。
+    如果模板中的条目在 profile 中不存在，则自动创建空条目。
     """
     new_profile = copy.deepcopy(template)
     tpl = load_template()
