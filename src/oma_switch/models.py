@@ -6,12 +6,80 @@ Contains model collection, analysis, and search functions.
 """
 
 import json
+import subprocess
+import sys
 from typing import Dict, List, Optional, Tuple
 
-from .constants import FALLBACKS_DIR, HAS_THEFUZZ, OMA_CONFIG, PROFILES_DIR, _fuzz
+from .constants import (
+    FALLBACKS_DIR,
+    HAS_THEFUZZ,
+    OMA_CONFIG,
+    OPENCODE_MODELS_FILE,
+    PROFILES_DIR,
+    _fuzz,
+)
 from .display import print_warning
 from .history import get_category_aware_scores, get_model_frequency
 from .template import parse_model_with_variant
+
+
+def update_opencode_models_cache() -> List[str]:
+    """调用 `opencode models` 获取所有可用模型并缓存到本地文件。
+
+    优先使用 python -m opencode models，回退到 opencode models。
+    缓存文件为 OPENCODE_MODELS_FILE (opencode_models.json)。
+    返回获取到的模型列表，失败时返回空列表。
+    """
+    models: List[str] = []
+
+    for cmd in (
+        [sys.executable, "-m", "opencode", "models"],
+        ["opencode", "models"],
+    ):
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                models = [
+                    line.strip()
+                    for line in result.stdout.strip().splitlines()
+                    if line.strip()
+                ]
+                break
+        except (subprocess.SubprocessError, FileNotFoundError, OSError):
+            continue
+
+    if models:
+        models = list(dict.fromkeys(models))
+        try:
+            OPENCODE_MODELS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(OPENCODE_MODELS_FILE, "w", encoding="utf-8") as f:
+                json.dump(models, f, ensure_ascii=False, indent=2)
+        except IOError as e:
+            print_warning(f"无法写入模型缓存文件: {e}")
+    else:
+        print_warning("获取模型列表失败，缓存未被更新")
+
+    return models
+
+
+def load_opencode_models() -> List[str]:
+    """从缓存文件加载 opencode 可用模型列表。
+
+    缓存文件由 update_opencode_models_cache() 生成。
+    文件不存在或格式错误时返回空列表。
+    """
+    if not OPENCODE_MODELS_FILE.exists():
+        return []
+    try:
+        with open(OPENCODE_MODELS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list) and all(isinstance(m, str) for m in data):
+            return data
+        return []
+    except (json.JSONDecodeError, IOError):
+        return []
 
 
 def collect_all_models() -> List[str]:
@@ -104,7 +172,7 @@ def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, O
 
     # 从 fallbacks 收集
     if FALLBACKS_DIR.exists():
-        for f in FALLBACKS_DIR.glob("*.json"):
+        for f in sorted(FALLBACKS_DIR.glob("*.json")):
             try:
                 with open(f, "r", encoding="utf-8") as fh:
                     fallback = json.load(fh)
@@ -122,9 +190,9 @@ def collect_models_enriched(category: Optional[str] = None) -> List[Tuple[str, O
     result = [(model, variant, freq) for model, (variant, freq) in model_map.items()]
     if category is not None:
         scores = get_category_aware_scores([m for m, _v, _f in result], category)
-        result.sort(key=lambda x: (-scores.get(x[0], 0.0), x[0]))
+        result.sort(key=lambda x: (-scores.get(x[0], 0.0), x[0].lower()))
     else:
-        result.sort(key=lambda x: (-x[2], x[0]))
+        result.sort(key=lambda x: (-x[2], x[0].lower()))
     return result
 
 

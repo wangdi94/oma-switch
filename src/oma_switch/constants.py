@@ -21,6 +21,7 @@ TEMPLATE_FILE = CONFIG_DIR / "template.json"
 OMA_CONFIG = Path.home() / ".config" / "opencode" / "oh-my-openagent.json"
 FALLBACKS_DIR = CONFIG_DIR / "fallbacks"
 HISTORY_FILE = CONFIG_DIR / "history.json"
+OPENCODE_MODELS_FILE = CONFIG_DIR / "opencode_models.json"
 
 # DCP (Dynamic Context Pruning) 插件配置
 OPENCODE_DIR = Path.home() / ".config" / "opencode"
