@@ -253,11 +253,13 @@ def test_profile_switch_preserves_fallback(monkeypatch, capsys):
 
 @pytest.mark.usefixtures("integration_setup")
 def test_edit_fallback_updates_oma(monkeypatch, capsys):
-    """Switch fallback → edit fallback → verify OMA config updated."""
-    monkeypatch.setattr(cli, "load_template", lambda: TEST_TEMPLATE)
-    monkeypatch.setattr(cli, "collect_all_models", lambda: ["model-a", "model-b", "model-c"])
+    import oma_switch.fallback_cmds as fallback_cmds_mod
+    import oma_switch.prompt as prompt_mod
+
+    monkeypatch.setattr(fallback_cmds_mod, "load_template", lambda: TEST_TEMPLATE)
+    monkeypatch.setattr(fallback_cmds_mod, "collect_all_models", lambda: ["model-a", "model-b", "model-c"])
     monkeypatch.setattr(
-        cli,
+        prompt_mod,
         "collect_models_enriched",
         lambda cat=None: [("model-a", None, 0), ("model-b", None, 0), ("model-c", None, 0)],
     )

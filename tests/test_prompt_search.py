@@ -316,24 +316,24 @@ class TestCategoryAwareScores:
 
 class TestPromptSelectModel:
     def test_prompt_select_by_number(self, profile_env, history_env, capsys):
-        """输入编号选择模型。"""
-        with patch("builtins.input", return_value="1"):
+        with patch("builtins.input", return_value="1"), \
+             patch("oma_switch.models.load_opencode_models", return_value=[]):
             model, variant = cli.prompt_select_model("主模型", [])
 
         assert model == "claude-sonnet"
         assert variant is None
 
     def test_prompt_shows_variant_in_list(self, profile_env, history_env, capsys):
-        """列表中显示变体标注。"""
-        with patch("builtins.input", return_value="1"):
+        with patch("builtins.input", return_value="1"), \
+             patch("oma_switch.models.load_opencode_models", return_value=[]):
             cli.prompt_select_model("主模型", [])
 
         output = capsys.readouterr().out
         assert "[max]" in output
 
     def test_prompt_records_usage_on_select(self, profile_env, history_env):
-        """选择模型后记录使用历史。"""
-        with patch("builtins.input", return_value="1"):
+        with patch("builtins.input", return_value="1"), \
+             patch("oma_switch.models.load_opencode_models", return_value=[]):
             model, _ = cli.prompt_select_model("主模型", [])
 
         history = cli.load_history()
@@ -350,8 +350,8 @@ class TestPromptSelectModel:
         assert variant == "max"
 
     def test_prompt_search_filter(self, profile_env, history_env, capsys):
-        """搜索输入过滤模型列表，然后选择。"""
-        with patch("builtins.input", side_effect=["claude", "1"]):
+        with patch("builtins.input", side_effect=["claude", "1"]), \
+             patch("oma_switch.models.load_opencode_models", return_value=[]):
             model, variant = cli.prompt_select_model("主模型", [])
 
         output = capsys.readouterr().out
@@ -359,11 +359,11 @@ class TestPromptSelectModel:
         assert model == "claude-sonnet"
 
     def test_prompt_empty_model_list(self, isolated_config_dir, history_env, monkeypatch, capsys):
-        """无可用模型时返回 (None, None)。"""
         monkeypatch.setattr(cli, "OMA_CONFIG", isolated_config_dir / "nonexistent.json")
         monkeypatch.setattr(cli, "PROFILES_DIR", isolated_config_dir / "empty_profiles")
         monkeypatch.setattr(cli, "FALLBACKS_DIR", isolated_config_dir / "empty_fallbacks")
-        model, variant = cli.prompt_select_model("主模型", [])
+        with patch("oma_switch.models.load_opencode_models", return_value=[]):
+            model, variant = cli.prompt_select_model("主模型", [])
 
         assert model is None
         assert variant is None
@@ -430,26 +430,17 @@ class TestPromptSelectFallbackModels:
             assert history["models"][model]["categories"].get("fallback", 0) >= 1
 
     def test_fallback_prompt_max_limit(self, profile_env, fallback_env, history_env, capsys):
-        """选择超过 5 个模型时截断并输出警告。"""
-        # 构造 6 个可用模型以触发上限截断逻辑
-        dummy_models = [
-            ("m1", None, 0),
-            ("m2", None, 1),
-            ("m3", None, 2),
-            ("m4", None, 3),
-            ("m5", None, 4),
-            ("m6", None, 5),
-        ]
+        dummy_models = [(f"m{i}", None, i) for i in range(25)]
 
         with (
-            patch("builtins.input", return_value="1,2,3,4,5,6"),
+            patch("builtins.input", return_value=",".join(str(i + 1) for i in range(25))),
             patch.object(prompt_mod, "collect_models_enriched", return_value=dummy_models),
         ):
             result = cli.prompt_select_fallback_models("主模型", [])
 
-        assert len(result) == 5
+        assert len(result) == 20
         output = capsys.readouterr().out
-        assert "最多只能选择 5 个" in output
+        assert "最多只能选择 20 个" in output
 
 
 # ---------- Edge case tests (T10) ----------

@@ -53,6 +53,7 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(constants, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
     monkeypatch.setattr(constants, "OPENCODE_DIR", fake_opencode_dir)
     monkeypatch.setattr(constants, "DCP_CONFIG_FILE", fake_opencode_dir / "dcp.jsonc")
+    monkeypatch.setattr(constants, "OPENCODE_MODELS_FILE", fake_config_dir / "opencode_models.json")
 
     monkeypatch.setattr(cli, "CONFIG_DIR", fake_config_dir)
     monkeypatch.setattr(cli, "PROFILES_DIR", fake_profiles_dir)
@@ -69,6 +70,7 @@ def isolated_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(models_mod, "PROFILES_DIR", fake_profiles_dir)
     monkeypatch.setattr(models_mod, "FALLBACKS_DIR", fake_fallbacks_dir)
     monkeypatch.setattr(models_mod, "OMA_CONFIG", fake_opencode_dir / "oh-my-openagent.json")
+    monkeypatch.setattr(models_mod, "OPENCODE_MODELS_FILE", fake_config_dir / "opencode_models.json")
 
     monkeypatch.setattr(version_mod, "CONFIG_DIR", fake_config_dir)
 
