@@ -10,7 +10,11 @@ from typing import Dict, List, Optional, Tuple
 
 from .display import Colors, print_warning
 from .history import get_category_frequency, get_model_frequency, record_model_usage
-from .models import collect_models_enriched, fuzzy_match_models
+from .models import (
+    collect_models_enriched,
+    fuzzy_match_models,
+    load_opencode_models,
+)
 from .template import DEFAULT_TEMPLATE_GROUPS, load_template, parse_model_with_variant
 from .types import FallbackData
 
@@ -101,10 +105,32 @@ def prompt_select_model(
         if matches:
             match_set = set(matches)
             filtered = [(m, v, f) for m, v, f in enriched_models if m in match_set]
-            display_list = filtered
-            print(f"    搜索 '{choice}' 的结果 ({len(filtered)} 个):")
+            display_list = list(filtered)
+
+            if choice not in match_set:
+                opencode_models = load_opencode_models()
+                if opencode_models:
+                    opencode_matches = fuzzy_match_models(choice, opencode_models)
+                    if opencode_matches:
+                        for m in opencode_matches:
+                            if m not in match_set:
+                                display_list.append((m, None, get_model_frequency(m)))
+                                match_set.add(m)
+
+            print(f"    搜索 '{choice}' 的结果 ({len(display_list)} 个):")
             _display_models(display_list)
         else:
+            opencode_models = load_opencode_models()
+            if opencode_models:
+                opencode_matches = fuzzy_match_models(choice, opencode_models)
+                if opencode_matches:
+                    opencode_enriched = [
+                        (m, None, get_model_frequency(m)) for m in opencode_matches
+                    ]
+                    display_list = opencode_enriched
+                    print(f"    在 opencode 全量模型中搜索 '{choice}' 的结果 ({len(opencode_matches)} 个):")
+                    _display_models(display_list)
+                    continue
             print_warning("未找到匹配的模型，请重新输入")
             display_list = enriched_models
             _display_models(display_list)
@@ -249,10 +275,25 @@ def prompt_select_fallback_models(
 
             matches = fuzzy_match_models(query, model_names)
             if matches:
-                print(f"    {Colors.GRAY}搜索 '{query}' 的结果:{Colors.NC}")
                 match_set = set(matches)
-                filtered = [(m, v, f) for m, v, f in enriched if m in match_set]
-                filtered_indexed = _display_grouped(filtered)
+
+                opencode_additional: List[Tuple[str, Optional[str], int]] = []
+                if query not in match_set:
+                    opencode_models = load_opencode_models()
+                    if opencode_models:
+                        opencode_matches = fuzzy_match_models(query, opencode_models)
+                        if opencode_matches:
+                            for m in opencode_matches:
+                                if m not in match_set:
+                                    opencode_additional.append((m, None, get_model_frequency(m)))
+                                    match_set.add(m)
+
+                print(f"    {Colors.GRAY}搜索 '{query}' 的结果:{Colors.NC}")
+                combined = (
+                    [(m, v, f) for m, v, f in enriched if m in match_set]
+                    + opencode_additional
+                )
+                filtered_indexed = _display_grouped(combined)
 
                 inner = input("  请选择（逗号分隔编号，留空=取消搜索）: ").strip()
                 if not inner:
@@ -263,6 +304,24 @@ def prompt_select_fallback_models(
                 selected = _apply_selection(inner_parts, filtered_indexed)
                 return _truncate_and_record(selected)
             else:
+                opencode_models = load_opencode_models()
+                if opencode_models:
+                    opencode_matches = fuzzy_match_models(query, opencode_models)
+                    if opencode_matches:
+                        opencode_enriched = [
+                            (m, None, get_model_frequency(m)) for m in opencode_matches
+                        ]
+                        print(f"    {Colors.GRAY}在 opencode 全量模型中搜索 '{query}' 的结果:{Colors.NC}")
+                        filtered_indexed = _display_grouped(opencode_enriched)
+
+                        inner = input("  请选择（逗号分隔编号，留空=取消搜索）: ").strip()
+                        if not inner:
+                            indexed_models = _display_grouped(enriched)
+                            continue
+
+                        inner_parts = [p.strip() for p in inner.split(",") if p.strip()]
+                        selected = _apply_selection(inner_parts, filtered_indexed)
+                        return _truncate_and_record(selected)
                 print_warning(f"未找到匹配 '{query}' 的模型")
                 continue
 

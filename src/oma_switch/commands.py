@@ -39,7 +39,11 @@ from .display import (
     print_warning,
 )
 from .io_utils import _atomic_write_json
-from .models import collect_all_models
+from .models import (
+    collect_all_models,
+    load_opencode_models,
+    update_opencode_models_cache,
+)
 from .prompt import generate_profile_from_types, prompt_select_model
 from .template import (
     check_template_profile,
@@ -61,6 +65,7 @@ __all__ = [
     "cmd_switch",
     "cmd_diff",
     "cmd_backup",
+    "cmd_models",
 ]
 
 
@@ -679,3 +684,43 @@ def cmd_backup(args: List[str]) -> None:
     save_config(config)
 
     print_success(f"已创建备份: {backup_name}")
+
+
+def cmd_models(args: List[str]) -> None:
+    """管理 opencode 可用模型缓存。
+
+    子命令:
+      update  - 调用 opencode models 并缓存到本地
+      list    - 显示已缓存的模型列表
+      count   - 显示已缓存的模型数量
+    """
+    if not args:
+        models = load_opencode_models()
+        if models:
+            print_info(f"已缓存 {len(models)} 个模型（使用 `models update` 刷新）")
+        else:
+            print_info("模型缓存为空，请先运行 `oma-switch models update`")
+        return
+
+    sub = args[0]
+    if sub == "update":
+        print_info("正在获取 opencode 可用模型列表...")
+        models = update_opencode_models_cache()
+        if models:
+            print_success(f"已获取并缓存 {len(models)} 个模型")
+        else:
+            print_error("获取模型列表失败，请确认 opencode 已安装")
+    elif sub == "list":
+        models = load_opencode_models()
+        if models:
+            print_info(f"共 {len(models)} 个模型:")
+            for m in models:
+                print(f"  {m}")
+        else:
+            print_info("模型缓存为空，请先运行 `oma-switch models update`")
+    elif sub == "count":
+        models = load_opencode_models()
+        print_info(f"已缓存 {len(models)} 个模型")
+    else:
+        print_error(f"未知子命令: {sub}")
+        print_info("用法: oma-switch models <update|list|count>")

@@ -35,6 +35,7 @@ OMA 配置文件切换工具 (v{__version__})
     restore [file] [version] 恢复历史版本
     template [edit|reset|diff] 查看/编辑/重置/比较模板
     dcp [subcommand]         管理 DCP 插件（每个配置独立绑定）
+    models [update|list|count] 管理 opencode 模型缓存
 
   支持双模式（快速/详细）:
     edit [--detail] <name>    编辑配置文件
@@ -94,6 +95,7 @@ def main() -> None:
         "dcp": cmd_dcp,
         "fallback": cmd_fallback,
         "restore": cmd_restore,
+        "models": cmd_models,
         "help": cmd_help,
     }
     if command in commands:
