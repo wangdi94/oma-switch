@@ -187,7 +187,7 @@ def validate_fallback_config(data: FallbackData) -> Tuple[bool, str]:
     - 每个值必须包含 fallback_models 键
     - fallback_models 必须是列表
     - 列表中每个对象必须包含 model 键
-    - 每个链最多 5 个模型
+    - 每个链最多 20 个模型
     - 链内不允许重复模型
 
     返回:

@@ -64,7 +64,7 @@ Fallback 链允许为每个模型分类（主/强/中/弱/多模态）配置备�
 | `fallback rm <name>` | 删除 fallback 配置 |
 
 **特性**：
-- 每个分类独立配置 fallback 模型链（最多 5 个模型）
+- 每个分类独立配置 fallback 模型链（最多 20 个模型）
 - 支持 `model[variant]` 语法（如 `gpt-4o[max]`）
 - 切换 profile 时保留当前 fallback 配置
 - 切换 fallback 时不影响主模型选择
