@@ -42,11 +42,10 @@ class TestValidateFallbackConfig:
         assert "list" in msg
 
     def test_max_length(self):
-        """超过 5 个模型应返回错误。"""
-        data = {"主模型": {"fallback_models": ["m1", "m2", "m3", "m4", "m5", "m6"]}}
+        data = {"主模型": {"fallback_models": [f"m{i}" for i in range(21)]}}
         ok, msg = validate_fallback_config(data)
         assert ok is False
-        assert "5" in msg
+        assert "20" in msg
 
     def test_duplicate_models(self):
         """链内重复模型应返回错误。"""

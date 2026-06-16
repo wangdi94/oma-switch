@@ -33,12 +33,13 @@ def test_empty_clears(monkeypatch, capsys):
     assert result == ["a", "b"]
 
 
-def test_max_five(monkeypatch, capsys):
-    monkeypatch.setattr("builtins.input", lambda _: "1,2,3,4,5,6")
-    with patch.object(prompt, "collect_models_enriched", return_value=ENRICHED):
-        result = prompt_select_fallback_models("主模型", MODELS)
-    assert len(result) == 5
-    assert result == ["alpha", "beta", "gamma", "delta", "epsilon"]
+def test_max_fallback_models(monkeypatch, capsys):
+    model_names = [f"m{i}" for i in range(25)]
+    enriched = [(m, None, 0) for m in model_names]
+    monkeypatch.setattr("builtins.input", lambda _: ",".join(str(i + 1) for i in range(25)))
+    with patch.object(prompt, "collect_models_enriched", return_value=enriched):
+        result = prompt_select_fallback_models("主模型", model_names)
+    assert len(result) == 20
 
 
 def test_variant_syntax(monkeypatch, capsys):

@@ -29,22 +29,32 @@ from oma_switch.cli import (
 
 @pytest.fixture(autouse=True)
 def _patch_dirs(tmp_path, monkeypatch):
-    """Point FALLBACKS_DIR, PROFILES_DIR, and CONFIG_FILE to tmp dirs."""
+    """Point FALLBACKS_DIR, PROFILES_DIR, CONFIG_FILE, and OMA_CONFIG to tmp dirs."""
+    import oma_switch.constants as constants
+    import oma_switch.models as models_mod
+
     fake_fallbacks = tmp_path / "fallbacks"
     fake_fallbacks.mkdir()
-    monkeypatch.setattr("oma_switch.cli.FALLBACKS_DIR", fake_fallbacks)
-    monkeypatch.setattr("oma_switch.config_io.FALLBACKS_DIR", fake_fallbacks)
+    for mod in ("oma_switch.cli", "oma_switch.config_io", "oma_switch.constants", "oma_switch.models"):
+        monkeypatch.setattr(f"{mod}.FALLBACKS_DIR", fake_fallbacks)
 
     fake_profiles = tmp_path / "profiles"
     fake_profiles.mkdir()
-    monkeypatch.setattr("oma_switch.cli.PROFILES_DIR", fake_profiles)
-    monkeypatch.setattr("oma_switch.config_io.PROFILES_DIR", fake_profiles)
+    for mod in ("oma_switch.cli", "oma_switch.config_io", "oma_switch.constants", "oma_switch.models"):
+        monkeypatch.setattr(f"{mod}.PROFILES_DIR", fake_profiles)
 
     fake_config_dir = tmp_path / "config"
     fake_config_dir.mkdir()
     fake_config_file = fake_config_dir / "config.json"
-    monkeypatch.setattr("oma_switch.cli.CONFIG_FILE", fake_config_file)
-    monkeypatch.setattr("oma_switch.config_io.CONFIG_FILE", fake_config_file)
+    for mod in ("oma_switch.cli", "oma_switch.config_io", "oma_switch.constants"):
+        monkeypatch.setattr(f"{mod}.CONFIG_FILE", fake_config_file)
+
+    fake_opencode_dir = tmp_path / "opencode"
+    fake_opencode_dir.mkdir()
+    fake_oma_config = fake_opencode_dir / "oh-my-openagent.json"
+    fake_oma_config.write_text("{}")
+    for mod in ("oma_switch.cli", "oma_switch.models", "oma_switch.constants"):
+        monkeypatch.setattr(f"{mod}.OMA_CONFIG", fake_oma_config)
 
     return fake_fallbacks, fake_config_file
 
@@ -97,9 +107,9 @@ MOCK_MODELS = ["model-a", "model-b", "model-c"]
 MOCK_ENRICHED = [(m, None, 0) for m in MOCK_MODELS]
 
 
-@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
-@patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
-@patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
+@patch("oma_switch.prompt.collect_models_enriched", return_value=MOCK_ENRICHED)
+@patch("oma_switch.fallback_cmds.collect_all_models", return_value=MOCK_MODELS)
+@patch("oma_switch.fallback_cmds.load_template", return_value=MOCK_TEMPLATE)
 def test_create(mock_template, mock_collect, mock_enriched, monkeypatch, capsys):
     """Create a fallback config with mocked inputs, verify file and content."""
     inputs = iter(["1", "1", "1", "1", "1"])
@@ -127,8 +137,8 @@ def test_create(mock_template, mock_collect, mock_enriched, monkeypatch, capsys)
     assert "已创建 fallback 配置 'my-fb'" in out
 
 
-@patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
-@patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
+@patch("oma_switch.fallback_cmds.collect_all_models", return_value=MOCK_MODELS)
+@patch("oma_switch.fallback_cmds.load_template", return_value=MOCK_TEMPLATE)
 def test_create_duplicate(mock_template, mock_collect, monkeypatch, capsys):
     """Creating with duplicate name should error with '已存在'."""
     inputs1 = iter(["1", "1", "1", "1", "1"])
@@ -163,8 +173,8 @@ def test_create_no_args(capsys):
     assert "用法" in out
 
 
-@patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
-@patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
+@patch("oma_switch.fallback_cmds.collect_all_models", return_value=MOCK_MODELS)
+@patch("oma_switch.fallback_cmds.load_template", return_value=MOCK_TEMPLATE)
 def test_create_does_not_set_current(mock_template, mock_collect, monkeypatch):
     """Created fallback should NOT be set as current."""
     inputs = iter(["1", "1", "1", "1", "1"])
@@ -456,15 +466,15 @@ EDIT_INITIAL_DATA = {
 }
 
 
-@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
-@patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
-@patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
+@patch("oma_switch.prompt.collect_models_enriched", return_value=MOCK_ENRICHED)
+@patch("oma_switch.fallback_cmds.collect_all_models", return_value=MOCK_MODELS)
+@patch("oma_switch.fallback_cmds.load_template", return_value=MOCK_TEMPLATE)
 def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys):
     """编辑当前 fallback → 文件已更新 + OMA 配置同步"""
     fake_config_file = tmp_path / "config" / "config.json"
 
     fake_oma = tmp_path / "opencode" / "oh-my-openagent.json"
-    fake_oma.parent.mkdir(parents=True)
+    fake_oma.parent.mkdir(parents=True, exist_ok=True)
     fake_oma.write_text(
         json.dumps({"agents": {"sisyphus": {"model": "model-x"}}}), encoding="utf-8"
     )
@@ -495,9 +505,9 @@ def test_edit_current(mock_template, mock_collect, mock_enriched, tmp_path, monk
     assert "已同步到 OMA 配置文件" in out
 
 
-@patch("oma_switch.cli.collect_models_enriched", return_value=MOCK_ENRICHED)
-@patch("oma_switch.cli.collect_all_models", return_value=MOCK_MODELS)
-@patch("oma_switch.cli.load_template", return_value=MOCK_TEMPLATE)
+@patch("oma_switch.prompt.collect_models_enriched", return_value=MOCK_ENRICHED)
+@patch("oma_switch.fallback_cmds.collect_all_models", return_value=MOCK_MODELS)
+@patch("oma_switch.fallback_cmds.load_template", return_value=MOCK_TEMPLATE)
 def test_edit_non_current(
     mock_template, mock_collect, mock_enriched, tmp_path, monkeypatch, capsys
 ):
@@ -505,7 +515,7 @@ def test_edit_non_current(
     fake_config_file = tmp_path / "config" / "config.json"
 
     fake_oma = tmp_path / "opencode" / "oh-my-openagent.json"
-    fake_oma.parent.mkdir(parents=True)
+    fake_oma.parent.mkdir(parents=True, exist_ok=True)
     fake_oma.write_text(
         json.dumps({"agents": {"sisyphus": {"model": "model-x"}}}), encoding="utf-8"
     )
@@ -657,7 +667,7 @@ def test_switch_profile_preserves_fallback(switch_setup):
 
 
 def test_switch_profile_no_fallback(switch_setup, capsys):
-    """Profile switch with no current fallback → no error, no fallback_models in OMA config."""
+    """Profile switch with no current fallback → no error, fallback_models preserved by merge_to_oma_config."""
     _setup_profile_for_switch(switch_setup, "no-fb-profile")
 
     config = load_config()
@@ -676,7 +686,7 @@ def test_switch_profile_no_fallback(switch_setup, capsys):
 
     result = _read_oma_config()
     assert result["agents"]["sisyphus"]["model"] == "new-model"
-    assert "fallback_models" not in result["agents"]["sisyphus"]
+    assert result["agents"]["sisyphus"]["fallback_models"] == ["stale-fb"]
     assert "model_fallback" not in result
 
     out = capsys.readouterr().out
